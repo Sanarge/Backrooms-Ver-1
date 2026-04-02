@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Backrooms Game</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Main Menu Screen -->
+    <div id="main-menu" class="screen active">
+        <div class="menu-background" id="menu-bg"></div>
+        <div class="menu-overlay"></div>
+        <div class="menu-content">
+            <h1 class="game-title">THE BACKROOMS</h1>
+            <p class="game-subtitle">Level 0</p>
+            <div class="menu-buttons">
+                <button class="menu-btn" id="btn-start">Start</button>
+                <button class="menu-btn" id="btn-options">Options</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Options Screen -->
+    <div id="options-menu" class="screen">
+        <div class="menu-background" id="options-bg"></div>
+        <div class="menu-overlay"></div>
+        <div class="menu-content">
+            <h2 class="options-title">Options</h2>
+            <div class="options-list">
+                <div class="option-row">
+                    <span class="option-label">Show FPS Counter</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-fps">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="option-row">
+                    <span class="option-label">Mouse Sensitivity</span>
+                    <input type="range" id="sensitivity-slider" min="1" max="10" value="5" class="range-slider">
+                    <span class="range-value" id="sensitivity-value">5</span>
+                </div>
+                <div class="option-row">
+                    <span class="option-label">Master Volume</span>
+                    <input type="range" id="volume-slider" min="0" max="100" value="70" class="range-slider">
+                    <span class="range-value" id="volume-value">70</span>
+                </div>
+            </div>
+            <button class="menu-btn" id="btn-back">Back to Menu</button>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <canvas id="game-canvas"></canvas>
+        <div id="crosshair">+</div>
+        <button id="mobile-pause-btn" class="hidden">| |</button>
+        <div id="fps-counter" class="hidden">FPS: 0.00</div>
+        <!-- Stamina UI -->
+        <div id="stamina-ui">
+            <svg id="stamina-icon" viewBox="0 0 24 30" width="20" height="25">
+                <!-- Running person silhouette -->
+                <circle cx="17" cy="4" r="3" fill="white" stroke="black" stroke-width="0.8"/>
+                <path d="M10 10 L14 8 L18 10 L20 16 L17 15 L15 18 L18 26 L15 26 L12 19 L10 26 L7 26 L10 17 L8 14 L5 16 L4 13 L10 10Z"
+                      fill="white" stroke="black" stroke-width="0.6" stroke-linejoin="round"/>
+            </svg>
+            <div id="stamina-bar-container">
+                <div id="stamina-bar-fill"></div>
+            </div>
+        </div>
+        <div id="pause-menu" class="hidden">
+            <div class="pause-overlay"></div>
+            <div class="pause-content">
+                <h2>Paused</h2>
+                <button class="menu-btn" id="btn-resume">Resume</button>
+                <button class="menu-btn" id="btn-quit">Quit to Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="screen">
+        <div class="loading-content">
+            <p class="loading-hint" id="loading-hint">You hear a faint hum...</p>
+            <div class="loading-bar-container">
+                <div class="loading-bar" id="loading-bar"></div>
+            </div>
+            <p id="loading-text">Initializing</p>
+            <p class="loading-percent" id="loading-percent">0%</p>
+        </div>
+    </div>
+
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Game Modules (load order matters: engines first, then systems, then orchestrators) -->
+    <script src="js/audio.js"></script>
+    <script src="js/textures.js"></script>
+    <script src="js/movement.js"></script>
+    <script src="js/lighting.js"></script>
+    <script src="js/atmosphere.js"></script>
+    <script src="js/environment.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/mobile.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/menu.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
