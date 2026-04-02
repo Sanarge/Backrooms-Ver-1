@@ -1,0 +1,576 @@
+/* ========================================
+   Backrooms Game - Stylesheet
+   ======================================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+    width: 100vw;
+    height: 100vh;
+    cursor: default;
+    user-select: none;
+}
+
+/* ---- Screen Management ---- */
+.screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    z-index: 1;
+}
+
+.screen.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ---- Menu Backgrounds ---- */
+.menu-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #8B7D3C;
+    background-image:
+        repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 48px,
+            rgba(0, 0, 0, 0.05) 48px,
+            rgba(0, 0, 0, 0.05) 50px
+        ),
+        repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 48px,
+            rgba(0, 0, 0, 0.05) 48px,
+            rgba(0, 0, 0, 0.05) 50px
+        );
+    filter: blur(8px);
+    transform: scale(1.05);
+}
+
+.menu-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.menu-content {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    color: #e8d9a0;
+}
+
+/* ---- Title ---- */
+.game-title {
+    font-size: 4.5rem;
+    letter-spacing: 0.6rem;
+    text-shadow:
+        0 0 20px rgba(232, 217, 160, 0.4),
+        0 0 60px rgba(200, 180, 100, 0.15);
+    margin-bottom: 0.3rem;
+    font-weight: 400;
+}
+
+.game-subtitle {
+    font-size: 1.2rem;
+    letter-spacing: 0.4rem;
+    color: #b0a060;
+    margin-bottom: 3rem;
+    text-transform: uppercase;
+}
+
+/* ---- Menu Buttons ---- */
+.menu-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.menu-btn {
+    background: rgba(232, 217, 160, 0.08);
+    border: 1px solid rgba(232, 217, 160, 0.25);
+    color: #e8d9a0;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    letter-spacing: 0.2rem;
+    padding: 0.8rem 3rem;
+    min-width: 220px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    text-transform: uppercase;
+}
+
+.menu-btn:hover {
+    background: rgba(232, 217, 160, 0.18);
+    border-color: rgba(232, 217, 160, 0.5);
+    text-shadow: 0 0 10px rgba(232, 217, 160, 0.3);
+}
+
+.menu-btn:active {
+    transform: scale(0.97);
+}
+
+/* ---- Options ---- */
+.options-title {
+    font-size: 2.5rem;
+    letter-spacing: 0.4rem;
+    margin-bottom: 2.5rem;
+    font-weight: 400;
+}
+
+.options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+    min-width: 400px;
+}
+
+.option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.option-label {
+    font-size: 0.95rem;
+    letter-spacing: 0.1rem;
+    color: #c8b870;
+}
+
+/* ---- Toggle Switch ---- */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 52px;
+    height: 28px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(100, 90, 50, 0.4);
+    border: 1px solid rgba(232, 217, 160, 0.2);
+    border-radius: 28px;
+    transition: all 0.3s ease;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background: #b0a060;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: rgba(180, 170, 90, 0.4);
+    border-color: rgba(232, 217, 160, 0.5);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(24px);
+    background: #e8d9a0;
+}
+
+/* ---- Range Slider ---- */
+.range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 150px;
+    height: 6px;
+    background: rgba(100, 90, 50, 0.4);
+    border: 1px solid rgba(232, 217, 160, 0.15);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #c8b870;
+    border: 1px solid rgba(232, 217, 160, 0.5);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+    background: #e8d9a0;
+}
+
+.range-value {
+    font-size: 0.9rem;
+    color: #b0a060;
+    min-width: 30px;
+    text-align: right;
+}
+
+/* ---- Game Canvas ---- */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#game-screen {
+    z-index: 1;
+    touch-action: none;
+}
+
+/* ---- Crosshair ---- */
+#crosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 20px;
+    font-weight: 100;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- FPS Counter ---- */
+#fps-counter {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    color: #c8ff00;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    z-index: 10;
+    pointer-events: none;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.35);
+    padding: 4px 8px;
+    border-radius: 3px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ---- Pause Menu ---- */
+.pause-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.65);
+}
+
+.pause-content {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #e8d9a0;
+    z-index: 20;
+}
+
+.pause-content h2 {
+    font-size: 2.5rem;
+    letter-spacing: 0.4rem;
+    margin-bottom: 2rem;
+    font-weight: 400;
+}
+
+.pause-content .menu-btn {
+    margin: 0.5rem 0;
+    display: block;
+    width: 100%;
+}
+
+/* ---- Loading Screen ---- */
+#loading-screen {
+    background: #0a0a08;
+    z-index: 100;
+}
+
+.loading-content {
+    text-align: center;
+    color: #e8d9a0;
+    width: 340px;
+}
+
+.loading-hint {
+    font-size: 1.1rem;
+    letter-spacing: 0.15rem;
+    color: #a09050;
+    margin-bottom: 2.5rem;
+    font-style: italic;
+    opacity: 0;
+    animation: hintFadeIn 1.5s ease 0.3s forwards;
+}
+
+@keyframes hintFadeIn {
+    to { opacity: 1; }
+}
+
+.loading-bar-container {
+    width: 100%;
+    height: 3px;
+    background: rgba(232, 217, 160, 0.08);
+    border-radius: 2px;
+    margin: 0 auto 1.2rem;
+    overflow: hidden;
+}
+
+.loading-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #807040, #c8b870, #e8d9a0);
+    transition: width 0.4s ease;
+}
+
+#loading-text {
+    font-size: 0.75rem;
+    color: #605830;
+    letter-spacing: 0.12rem;
+    text-transform: uppercase;
+    min-height: 1.2em;
+    transition: opacity 0.2s ease;
+}
+
+.loading-percent {
+    font-size: 0.7rem;
+    color: #504828;
+    letter-spacing: 0.08rem;
+    margin-top: 0.4rem;
+}
+
+/* ========================================
+   Stamina UI
+   ======================================== */
+#stamina-ui {
+    position: fixed;
+    bottom: 24px;
+    left: 20px;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+#stamina-ui.visible {
+    opacity: 1;
+}
+
+#stamina-ui.fading {
+    opacity: 0;
+    transition: opacity 1.0s ease;
+}
+
+#stamina-icon {
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 2px rgba(0,0,0,0.6));
+    opacity: 0.85;
+}
+
+#stamina-bar-container {
+    width: 90px;
+    height: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+#stamina-bar-fill {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, #b8c8a0, #d4dfc0);
+    border-radius: 3px;
+    transition: width 0.08s linear;
+}
+
+/* Low stamina warning color */
+#stamina-bar-fill.low {
+    background: linear-gradient(90deg, #c89060, #d4a870);
+}
+
+#stamina-bar-fill.depleted {
+    background: linear-gradient(90deg, #a05040, #c06050);
+}
+
+/* Mobile adjustments */
+.is-mobile #stamina-ui {
+    bottom: 140px;
+    left: 16px;
+}
+
+/* ========================================
+   Mobile Controls
+   ======================================== */
+
+/* Virtual Joystick */
+#mobile-joystick {
+    position: fixed;
+    z-index: 50;
+    pointer-events: none;
+    display: none;
+    transform: translate(-50%, -50%);
+}
+
+.joystick-base {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(232, 217, 160, 0.08);
+    border: 1px solid rgba(232, 217, 160, 0.15);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+#mobile-joystick.active .joystick-base {
+    opacity: 1;
+}
+
+.joystick-thumb {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(232, 217, 160, 0.2);
+    border: 1px solid rgba(232, 217, 160, 0.35);
+}
+
+/* Fullscreen button (mobile only) */
+.mobile-fs-btn {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 50;
+    display: none;
+    font-size: 0.75rem;
+    padding: 0.4rem 1rem;
+    min-width: auto;
+    letter-spacing: 0.1rem;
+    opacity: 0.6;
+}
+
+.is-mobile .mobile-fs-btn {
+    display: block;
+}
+
+/* Mobile pause button */
+#mobile-pause-btn {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(232, 217, 160, 0.2);
+    color: rgba(232, 217, 160, 0.5);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 2px;
+}
+
+/* Touch area for look (invisible, right side) */
+.is-mobile #game-canvas {
+    touch-action: none;
+}
+
+/* ---- Mobile Responsive ---- */
+.is-mobile .game-title {
+    font-size: 2.5rem;
+    letter-spacing: 0.3rem;
+}
+
+.is-mobile .game-subtitle {
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+}
+
+.is-mobile .options-list {
+    min-width: 280px;
+}
+
+.is-mobile .menu-btn {
+    font-size: 0.95rem;
+    padding: 0.7rem 2rem;
+    min-width: 180px;
+}
+
+.is-mobile .options-title {
+    font-size: 1.8rem;
+}
+
+.is-mobile .loading-content {
+    width: 260px;
+}
+
+.is-mobile .loading-hint {
+    font-size: 0.9rem;
+}
+
+@media (max-width: 480px) {
+    .game-title {
+        font-size: 2rem;
+        letter-spacing: 0.2rem;
+    }
+    .game-subtitle {
+        font-size: 0.8rem;
+        margin-bottom: 1.5rem;
+    }
+    .options-list {
+        min-width: 250px;
+    }
+    .range-slider {
+        width: 100px;
+    }
+}
