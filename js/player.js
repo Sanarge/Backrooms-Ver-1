@@ -108,11 +108,21 @@ const Player = (() => {
     // --- Footstep tracking (synced to head bob cycle) ---
     let prevBobStep = 0;      // tracks which bob half-cycle we're in
 
+    // --- Crouch system ---
+    const CROUCH_EYE_HEIGHT = 0.85;          // roughly half standing
+    const CROUCH_WALK_SPEED_MULT = 0.45;     // 45% of normal walk
+    const CROUCH_SPRINT_SPEED_MULT = 0.50;   // 50% of normal sprint
+    const CROUCH_TRANSITION_SPEED = 8.0;     // smooth crouch/stand lerp
+    let isCrouching = false;
+    let crouchLerp = 0;                      // 0 = standing, 1 = fully crouched
+    let crouchEyeOffset = 0;                 // actual interpolated offset
+
     // --- Input ---
     const keys = {
         forward: false, backward: false,
         left: false, right: false,
         jump: false, sprint: false,
+        crouch: false,
     };
 
     // =========================================
@@ -204,6 +214,9 @@ const Player = (() => {
         pitch = 0;
         bobTimer = 0;
         prevBobStep = 0;
+        isCrouching = false;
+        crouchLerp = 0;
+        crouchEyeOffset = 0;
         velocityY = 0;
         isGrounded = true;
         groundHeight = 0;
@@ -284,6 +297,8 @@ const Player = (() => {
             case 'KeyD': keys.right = true; break;
             case 'Space': keys.jump = true; break;
             case 'ShiftLeft': case 'ShiftRight': keys.sprint = true; break;
+            case 'ControlLeft': case 'ControlRight': case 'KeyC':
+                keys.crouch = true; break;
         }
     }
 
@@ -295,6 +310,8 @@ const Player = (() => {
             case 'KeyD': keys.right = false; break;
             case 'Space': keys.jump = false; break;
             case 'ShiftLeft': case 'ShiftRight': keys.sprint = false; break;
+            case 'ControlLeft': case 'ControlRight': case 'KeyC':
+                keys.crouch = false; break;
         }
     }
 
@@ -456,6 +473,12 @@ const Player = (() => {
         if (isSprinting && !wasSprinting) wasSprinting = true;
         if (!isSprinting && wasSprinting) wasSprinting = false;
 
+        // --- Crouch ---
+        isCrouching = keys.crouch;
+        const crouchTarget = isCrouching ? 1.0 : 0.0;
+        crouchLerp += (crouchTarget - crouchLerp) * Math.min(1.0, CROUCH_TRANSITION_SPEED * dt);
+        crouchEyeOffset = crouchLerp * (CROUCH_EYE_HEIGHT - EYE_HEIGHT);
+
         // --- Direction vectors ---
         const sy = Math.sin(yaw), cy = Math.cos(yaw);
         _forward.set(-sy, 0, -cy);
@@ -474,6 +497,11 @@ const Player = (() => {
         let targetSpeed = 0;
         if (wantsToMove) {
             targetSpeed = isSprinting ? SPRINT_SPEED : WALK_SPEED;
+            // Apply crouch speed reduction (lerped so transitions feel smooth)
+            if (crouchLerp > 0.01) {
+                const crouchMult = isSprinting ? CROUCH_SPRINT_SPEED_MULT : CROUCH_WALK_SPEED_MULT;
+                targetSpeed *= (1.0 - crouchLerp) + crouchLerp * crouchMult;
+            }
         }
 
         if (isGrounded) {
@@ -508,7 +536,9 @@ const Player = (() => {
         if (keys.jump && isGrounded && stamina >= STAMINA_JUMP_COST) {
             stamina = Math.max(0, stamina - STAMINA_JUMP_COST);
             staminaRechargeTimer = STAMINA_RECHARGE_DELAY;
-            velocityY = MovementEngine.JUMP_VELOCITY;
+            // Slightly reduced jump height when crouching
+            const jumpMult = isCrouching ? 0.8 : 1.0;
+            velocityY = MovementEngine.JUMP_VELOCITY * jumpMult;
             isGrounded = false;
             airSpeed = currentSpeed;
             wasSprintingAtJump = isSprinting;
@@ -567,7 +597,7 @@ const Player = (() => {
             // --- Footstep trigger (one per full bob cycle = one per step) ---
             const curBobStep = Math.floor(bobTimer / Math.PI);
             if (curBobStep !== prevBobStep && bobAmplitude > 0.35) {
-                AudioManager.playFootstep(isSprinting, bobAmplitude);
+                AudioManager.playFootstep(isSprinting, bobAmplitude, isCrouching);
                 prevBobStep = curBobStep;
             }
         } else if (isGrounded) {
@@ -602,7 +632,7 @@ const Player = (() => {
 
         const camX = position.x + _right.x * bobOffsetX;
         const camZ = position.z + _right.z * bobOffsetX;
-        const camY = position.y + bobOffsetY + landBobOffset;
+        const camY = position.y + bobOffsetY + landBobOffset + crouchEyeOffset;
 
         camera.position.set(camX, camY, camZ);
         _euler.set(pitch + sprintLeanPitch, yaw, bobRoll + strafeLean);
@@ -934,6 +964,7 @@ const Player = (() => {
         keys.right = false;
         keys.jump = false;
         keys.sprint = false;
+        keys.crouch = false;
     }
 
     function setMobileInput(mobileKeys) {
@@ -942,6 +973,7 @@ const Player = (() => {
         keys.left = mobileKeys.left || false;
         keys.right = mobileKeys.right || false;
         keys.sprint = mobileKeys.sprint || false;
+        keys.crouch = mobileKeys.crouch || false;
     }
 
     function getStamina() {
@@ -950,6 +982,7 @@ const Player = (() => {
             max: STAMINA_MAX,
             fraction: stamina / STAMINA_MAX,
             isSprinting: isSprinting,
+            isCrouching: isCrouching,
         };
     }
 

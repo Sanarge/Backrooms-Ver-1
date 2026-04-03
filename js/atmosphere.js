@@ -1,6 +1,6 @@
 /* ========================================
    Atmosphere Engine
-   ════════════════════════════════════════════════════════
+   ─────────────────────────────────────────
    Three layered systems that build dread:
 
    1. Distant Sounds — spatial audio events
@@ -451,9 +451,9 @@ const Atmosphere = (() => {
         const src = _audioCtx.createBufferSource();
         src.buffer = _runningBuffer;
 
-        // Heavy gain boost — the MP3 is monumentally quiet
+        // Heavy gain boost — the MP3 is very quiet
         const g = _audioCtx.createGain();
-        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 12.0, now);
+        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 40.0, now);
 
         src.connect(g);
         g.connect(panner);
@@ -471,9 +471,9 @@ const Atmosphere = (() => {
         const src = _audioCtx.createBufferSource();
         src.buffer = _alarmBuffer;
 
-        // Quiet it down — source is very loud
+        // Boosted for presence — still distant but clearly audible
         const g = _audioCtx.createGain();
-        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 0.3, now);
+        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 1.2, now);
 
         src.connect(g);
         g.connect(panner);
