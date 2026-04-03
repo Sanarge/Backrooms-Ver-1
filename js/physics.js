@@ -430,12 +430,17 @@ var Physics = (function () {
     }
 
     /**
-     * Get the highest point for ceiling collision.
+     * Get the ceiling offset — use the object's largest dimension
+     * as a simple radius, not the inflated rotated AABB.
+     * This prevents the chair from hitting an "invisible ceiling"
+     * when tumbling, while still blocking it at the real ceiling.
      */
     function _getCeilingOffset(body) {
-        _tmpBox.setFromObject(body.mesh);
-        var highestY = _tmpBox.max.y;
-        return highestY - body.mesh.position.y;
+        // Use half the largest dimension as a simple upward extent.
+        // This is tighter than the rotated AABB and feels much more
+        // natural — the chair can get close to the ceiling visually.
+        var maxDim = Math.max(body.boxWidth, body.boxHeight, body.boxDepth);
+        return maxDim * 0.45;
     }
 
     // =========================================
