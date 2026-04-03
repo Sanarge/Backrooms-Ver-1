@@ -643,6 +643,7 @@ const Player = (() => {
     //  TRIP CAMERA
     // =========================================
     let recoveryBobTimer = 0;
+    let prevRecoveryBobStep = 0;
 
     function updateCamera() {
         if (!camera) return;
@@ -659,11 +660,29 @@ const Player = (() => {
                 recoveryBobTimer += (1 / 120) * bobSpeed;
                 microBobY = Math.sin(recoveryBobTimer * 2) * 0.03 * bobIntensity;
                 microBobRoll = Math.sin(recoveryBobTimer) * 0.006 * bobIntensity;
+
+                // Footstep sounds synced to recovery bob cycle
+                const curRecBobStep = Math.floor(recoveryBobTimer / Math.PI);
+                if (curRecBobStep !== prevRecoveryBobStep && bobIntensity > 0.1) {
+                    AudioManager.playFootstep(false, bobIntensity * 0.7, false);
+                    prevRecoveryBobStep = curRecBobStep;
+                }
             } else {
                 recoveryBobTimer *= 0.92;
+                prevRecoveryBobStep = Math.floor(recoveryBobTimer / Math.PI);
+            }
+        } else if (tripState === 'stumbling') {
+            // Staggering footsteps during stumble — use the stumble step phase
+            const t = Math.min(tripTimer / stumbleDuration, 1.0);
+            const stepPhase = t * STUMBLE_STEPS * Math.PI * 2;
+            const curStumbleStep = Math.floor(stepPhase / Math.PI);
+            if (curStumbleStep !== prevRecoveryBobStep) {
+                AudioManager.playFootstep(tripWasSprinting, 0.8 + Math.random() * 0.2, false);
+                prevRecoveryBobStep = curStumbleStep;
             }
         } else {
             recoveryBobTimer = 0;
+            prevRecoveryBobStep = 0;
         }
 
         _euler.set(pitch + tripCameraPitch, yaw, tripCameraRoll + microBobRoll);
