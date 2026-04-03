@@ -250,34 +250,34 @@ var Physics = (function () {
      * angular impulse that will cause the chair to fall that way.
      */
     function _startTip(body) {
-        var direction = Math.floor(Math.random() * 4);
-        var tipStrength = 1.5 + Math.random() * 1.0;  // gentle but enough to tip
+        // Chair is asymmetric — the back is tall, so it tips backward
+        // more naturally. Weight the random direction accordingly:
+        // 40% backward (onto chair back), 25% forward, 17.5% left, 17.5% right
+        var roll = Math.random();
+        var direction;
+        if (roll < 0.40) direction = 1;       // backward — most common
+        else if (roll < 0.65) direction = 0;   // forward
+        else if (roll < 0.825) direction = 2;  // left
+        else direction = 3;                    // right
+
+        var tipStrength = 1.5 + Math.random() * 0.8;
 
         switch (direction) {
-            case 0: // tip forward (fall on front)
+            case 0: // tip forward
                 body.angularVel.x = -tipStrength;
-                body.tipAxis = 'x';
-                body.tipDirection = -1;
                 break;
-            case 1: // tip backward (fall on back)
+            case 1: // tip backward (onto chair back)
                 body.angularVel.x = tipStrength;
-                body.tipAxis = 'x';
-                body.tipDirection = 1;
                 break;
             case 2: // tip left
                 body.angularVel.z = tipStrength;
-                body.tipAxis = 'z';
-                body.tipDirection = 1;
                 break;
             case 3: // tip right
                 body.angularVel.z = -tipStrength;
-                body.tipAxis = 'z';
-                body.tipDirection = -1;
                 break;
         }
 
-        // Small random yaw spin
-        body.angularVel.y = (Math.random() - 0.5) * 0.5;
+        body.angularVel.y = (Math.random() - 0.5) * 0.4;
         body.isTipping = true;
     }
 
@@ -383,66 +383,75 @@ var Physics = (function () {
         return _colData.map[row][col] === 0;
     }
 
+    /**
+     * Wall collision using the actual rotated bounding box.
+     * This means the chair back, when sideways, properly collides
+     * with walls instead of clipping through.
+     */
     function _resolveWallCollisions(body) {
         var pos = body.mesh.position;
-        // Use full half-widths so the chair doesn't clip into walls
-        var hw = body.halfW;
-        var hd = body.halfD;
         var ts = _colData ? _colData.tileSize : 4.0;
 
-        // Check all four corners plus center edges for robust detection
-        var hitX = false, hitNegX = false, hitZ = false, hitNegZ = false;
+        // Get the ACTUAL world-space bounding box (accounts for rotation)
+        _tmpBox.setFromObject(body.mesh);
+        var hw = (_tmpBox.max.x - _tmpBox.min.x) / 2;
+        var hd = (_tmpBox.max.z - _tmpBox.min.z) / 2;
 
-        // +X side (check two corners and center)
+        // Minimum collision radius so tiny rotated states still collide
+        if (hw < 0.1) hw = 0.1;
+        if (hd < 0.1) hd = 0.1;
+
+        var vel = body.velocity;
+        var angVel = body.angularVel;
+
+        // +X wall
         if (_isWall(pos.x + hw, pos.z) ||
-            _isWall(pos.x + hw, pos.z + hd * 0.5) ||
-            _isWall(pos.x + hw, pos.z - hd * 0.5)) {
+            _isWall(pos.x + hw, pos.z + hd * 0.7) ||
+            _isWall(pos.x + hw, pos.z - hd * 0.7)) {
             var col = Math.floor((pos.x + hw) / ts);
             pos.x = col * ts - hw - 0.02;
-            var impactX = Math.abs(body.velocity.x);
-            body.velocity.x = -Math.abs(body.velocity.x) * WALL_BOUNCE;
-            // Transfer some X velocity into slide along wall
-            body.velocity.z *= 0.95;
-            body.angularVel.y += body.velocity.z * 0.1;
-            if (impactX > 1.0) _playImpactSound(impactX * 0.1);
-            hitX = true;
+            var impX = Math.abs(vel.x);
+            vel.x = -Math.abs(vel.x) * WALL_BOUNCE;
+            // Transfer into spin and slide
+            angVel.y += vel.z * 0.08;
+            angVel.x += (Math.random() - 0.5) * impX * 0.1;
+            if (impX > 1.0) _playImpactSound(impX * 0.1);
         }
-        // -X side
-        if (!hitX && (_isWall(pos.x - hw, pos.z) ||
-            _isWall(pos.x - hw, pos.z + hd * 0.5) ||
-            _isWall(pos.x - hw, pos.z - hd * 0.5))) {
+        // -X wall
+        if (_isWall(pos.x - hw, pos.z) ||
+            _isWall(pos.x - hw, pos.z + hd * 0.7) ||
+            _isWall(pos.x - hw, pos.z - hd * 0.7)) {
             var col2 = Math.floor((pos.x - hw) / ts);
             pos.x = (col2 + 1) * ts + hw + 0.02;
-            var impactNX = Math.abs(body.velocity.x);
-            body.velocity.x = Math.abs(body.velocity.x) * WALL_BOUNCE;
-            body.velocity.z *= 0.95;
-            body.angularVel.y += body.velocity.z * 0.1;
-            if (impactNX > 1.0) _playImpactSound(impactNX * 0.1);
+            var impNX = Math.abs(vel.x);
+            vel.x = Math.abs(vel.x) * WALL_BOUNCE;
+            angVel.y += vel.z * 0.08;
+            angVel.x += (Math.random() - 0.5) * impNX * 0.1;
+            if (impNX > 1.0) _playImpactSound(impNX * 0.1);
         }
-        // +Z side
+        // +Z wall
         if (_isWall(pos.x, pos.z + hd) ||
-            _isWall(pos.x + hw * 0.5, pos.z + hd) ||
-            _isWall(pos.x - hw * 0.5, pos.z + hd)) {
+            _isWall(pos.x + hw * 0.7, pos.z + hd) ||
+            _isWall(pos.x - hw * 0.7, pos.z + hd)) {
             var row = Math.floor((pos.z + hd) / ts);
             pos.z = row * ts - hd - 0.02;
-            var impactZ = Math.abs(body.velocity.z);
-            body.velocity.z = -Math.abs(body.velocity.z) * WALL_BOUNCE;
-            body.velocity.x *= 0.95;
-            body.angularVel.y += body.velocity.x * 0.1;
-            if (impactZ > 1.0) _playImpactSound(impactZ * 0.1);
-            hitZ = true;
+            var impZ = Math.abs(vel.z);
+            vel.z = -Math.abs(vel.z) * WALL_BOUNCE;
+            angVel.y += vel.x * 0.08;
+            angVel.z += (Math.random() - 0.5) * impZ * 0.1;
+            if (impZ > 1.0) _playImpactSound(impZ * 0.1);
         }
-        // -Z side
-        if (!hitZ && (_isWall(pos.x, pos.z - hd) ||
-            _isWall(pos.x + hw * 0.5, pos.z - hd) ||
-            _isWall(pos.x - hw * 0.5, pos.z - hd))) {
+        // -Z wall
+        if (_isWall(pos.x, pos.z - hd) ||
+            _isWall(pos.x + hw * 0.7, pos.z - hd) ||
+            _isWall(pos.x - hw * 0.7, pos.z - hd)) {
             var row2 = Math.floor((pos.z - hd) / ts);
             pos.z = (row2 + 1) * ts + hd + 0.02;
-            var impactNZ = Math.abs(body.velocity.z);
-            body.velocity.z = Math.abs(body.velocity.z) * WALL_BOUNCE;
-            body.velocity.x *= 0.95;
-            body.angularVel.y += body.velocity.x * 0.1;
-            if (impactNZ > 1.0) _playImpactSound(impactNZ * 0.1);
+            var impNZ = Math.abs(vel.z);
+            vel.z = Math.abs(vel.z) * WALL_BOUNCE;
+            angVel.y += vel.x * 0.08;
+            angVel.z += (Math.random() - 0.5) * impNZ * 0.1;
+            if (impNZ > 1.0) _playImpactSound(impNZ * 0.1);
         }
     }
 
