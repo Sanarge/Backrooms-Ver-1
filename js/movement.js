@@ -101,10 +101,10 @@ const MovementEngine = (() => {
 
         for (const p of collisionData.partitions) {
             if (
-                x >= p.x - p.halfW - PLAYER_RADIUS * 0.5 &&
-                x <= p.x + p.halfW + PLAYER_RADIUS * 0.5 &&
-                z >= p.z - p.halfD - PLAYER_RADIUS * 0.5 &&
-                z <= p.z + p.halfD + PLAYER_RADIUS * 0.5
+                x >= p.x - p.halfW - PLAYER_RADIUS * 0.3 &&
+                x <= p.x + p.halfW + PLAYER_RADIUS * 0.3 &&
+                z >= p.z - p.halfD - PLAYER_RADIUS * 0.3 &&
+                z <= p.z + p.halfD + PLAYER_RADIUS * 0.3
             ) {
                 const feetY = currentY - EYE_HEIGHT;
                 if (feetY >= p.height - 0.3) {
@@ -145,7 +145,9 @@ const MovementEngine = (() => {
         // Check against partitions
         if (parts) {
             for (const p of parts) {
-                if (feetY < p.height - 0.05) {
+                // Only block if player's feet are well below the partition top
+                // Use a generous margin so the player can step off small props easily
+                if (feetY < p.height - 0.15) {
                     const dx = Math.abs(x - p.x) - p.halfW;
                     const dz = Math.abs(z - p.z) - p.halfD;
                     if (dx < PLAYER_RADIUS && dz < PLAYER_RADIUS) {

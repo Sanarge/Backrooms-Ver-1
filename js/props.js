@@ -113,8 +113,8 @@ const Props = (() => {
         placeModel('assets/chair.glb', {
             position: { x: spawnPos.x + 2, y: 0, z: spawnPos.z - 1 },
             rotation: { x: 0, y: -0.5, z: 0 },
-            scale: 0.6,
-            physics: { mass: 3.0, halfW: 0.3, halfD: 0.3, height: 0.7 },
+            scale: 0.75,
+            physics: { mass: 3.0, halfW: 0.2, halfD: 0.2, height: 0.5 },
         });
     }
 
