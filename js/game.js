@@ -130,6 +130,10 @@ const Game = (() => {
         const spawn = Environment.getSpawnPosition();
         Player.init(camera, spawn, collisionData);
 
+        // --- Place props (chair, etc.) near spawn ---
+        Props.init(scene);
+        Props.placeSpawnProps(spawn);
+
         // Event listeners (only once)
         if (!Game._listenersAdded) {
             window.addEventListener('resize', onResize);
