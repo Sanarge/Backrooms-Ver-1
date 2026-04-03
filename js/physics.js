@@ -169,41 +169,57 @@ const Physics = (() => {
 
         if (!_heldBody) return;
 
-        const body = _heldBody;
+        var body = _heldBody;
         body.isHeld = false;
         _heldBody = null;
 
-        // Compute throw velocity from carry movement
-        const throwVel = _carryVelocity.clone();
+        var carrySpeed = _carryVelocity.length();
+        var fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
 
-        // Add forward impulse
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
-
-        // If there's significant carry velocity (player was swinging), use it
-        const carrySpeed = throwVel.length();
-
-        if (carrySpeed > 2.0) {
-            // Fling — use the carry momentum, add a bit of forward
+        if (carrySpeed > 5.0) {
+            // === THROW — player was actively swinging/flinging ===
+            var throwVel = _carryVelocity.clone();
             throwVel.add(fwd.clone().multiplyScalar(THROW_FORCE * 0.3));
+            body.velocity.copy(throwVel);
+
+            // Strong tumble
+            body.angularVel.set(
+                (Math.random() - 0.5) * 6,
+                (Math.random() - 0.5) * 4,
+                (Math.random() - 0.5) * 6
+            );
+            console.log('[Physics] Threw object, vel: ' + throwVel.length().toFixed(1));
+
         } else {
-            // Forward throw
-            const isSprinting = Player.getStamina().isSprinting;
-            const force = isSprinting ? THROW_FORCE_SPRINT : THROW_FORCE;
-            throwVel.copy(fwd).multiplyScalar(force);
-            throwVel.y += 2.0;
+            // === DROP — just let go, no throw ===
+            // Only inherit a fraction of carry movement (natural hand release)
+            body.velocity.set(
+                _carryVelocity.x * 0.15,
+                -0.5,   // slight downward nudge (gravity will do the rest)
+                _carryVelocity.z * 0.15
+            );
+
+            // Very gentle tumble — might tip over, might not
+            var tipChance = Math.random();
+            if (tipChance < 0.3) {
+                // Stays mostly upright
+                body.angularVel.set(
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.3
+                );
+            } else {
+                // Slight wobble
+                body.angularVel.set(
+                    (Math.random() - 0.5) * 1.0,
+                    (Math.random() - 0.5) * 0.8,
+                    (Math.random() - 0.5) * 1.0
+                );
+            }
+            console.log('[Physics] Dropped object gently');
         }
 
-        body.velocity.copy(throwVel);
-
-        // Tumble spin
-        body.angularVel.set(
-            (Math.random() - 0.5) * 6,
-            (Math.random() - 0.5) * 4,
-            (Math.random() - 0.5) * 6
-        );
-
         body.isAwake = true;
-        console.log('[Physics] Threw object, vel: ' + throwVel.length().toFixed(1));
     }
 
     // =========================================
@@ -296,27 +312,35 @@ const Physics = (() => {
     }
 
     function _updateBody(body, dt) {
-        const pos = body.mesh.position;
-        const vel = body.velocity;
-        const angVel = body.angularVel;
+        var pos = body.mesh.position;
+        var vel = body.velocity;
+        var angVel = body.angularVel;
+
+        // Cap dt to prevent tunneling through floor on lag spikes
+        var stepDt = Math.min(dt, 0.02);
 
         // Gravity
-        vel.y += GRAVITY * dt;
+        vel.y += GRAVITY * stepDt;
+
+        // Clamp max downward velocity to prevent floor phasing
+        if (vel.y < -20) vel.y = -20;
 
         // Move
-        pos.x += vel.x * dt;
-        pos.y += vel.y * dt;
-        pos.z += vel.z * dt;
+        pos.x += vel.x * stepDt;
+        pos.y += vel.y * stepDt;
+        pos.z += vel.z * stepDt;
 
-        // Floor collision
+        // Floor collision — always enforce, never let Y go below floor
         if (pos.y <= FLOOR_Y) {
             pos.y = FLOOR_Y;
 
             if (Math.abs(vel.y) > 1.0) {
                 vel.y = -vel.y * BOUNCE_FACTOR;
+                // Clamp bounce so it doesn't go crazy
+                if (vel.y > 8) vel.y = 8;
                 _playImpactSound(Math.abs(vel.y) * 0.1 + Math.sqrt(vel.x * vel.x + vel.z * vel.z) * 0.05);
-                angVel.x += (Math.random() - 0.5) * vel.y * 0.5;
-                angVel.z += (Math.random() - 0.5) * vel.y * 0.5;
+                angVel.x += (Math.random() - 0.5) * Math.min(Math.abs(vel.y), 3) * 0.3;
+                angVel.z += (Math.random() - 0.5) * Math.min(Math.abs(vel.y), 3) * 0.3;
             } else {
                 vel.y = 0;
             }
@@ -331,6 +355,9 @@ const Physics = (() => {
             vel.x *= AIR_FRICTION;
             vel.z *= AIR_FRICTION;
         }
+
+        // Extra safety: never below floor
+        if (pos.y < FLOOR_Y) pos.y = FLOOR_Y;
 
         // Wall collisions
         if (_colData) {
