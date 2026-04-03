@@ -590,9 +590,11 @@ const Player = (() => {
             const bobRate = (currentSpeed > WALK_SPEED + 1) ? BOB_SPEED_SPRINT : BOB_SPEED_WALK;
             bobTimer += dt * bobRate * bobAmplitude;
             const speedFactor = currentSpeed / SPRINT_SPEED;
-            bobOffsetY = Math.sin(bobTimer * 2) * BOB_AMOUNT_Y * (0.6 + speedFactor * 0.4) * bobAmplitude;
-            bobOffsetX = Math.cos(bobTimer) * BOB_AMOUNT_X * (0.5 + speedFactor * 0.5) * bobAmplitude;
-            bobRoll = Math.sin(bobTimer) * BOB_ROLL_AMOUNT * (0.5 + speedFactor * 0.5) * bobAmplitude;
+            // Crouch reduces bob intensity for a careful, low movement feel
+            const crouchBobDamp = 1.0 - crouchLerp * 0.5;
+            bobOffsetY = Math.sin(bobTimer * 2) * BOB_AMOUNT_Y * (0.6 + speedFactor * 0.4) * bobAmplitude * crouchBobDamp;
+            bobOffsetX = Math.cos(bobTimer) * BOB_AMOUNT_X * (0.5 + speedFactor * 0.5) * bobAmplitude * crouchBobDamp;
+            bobRoll = Math.sin(bobTimer) * BOB_ROLL_AMOUNT * (0.5 + speedFactor * 0.5) * bobAmplitude * crouchBobDamp;
 
             // --- Footstep trigger (one per full bob cycle = one per step) ---
             const curBobStep = Math.floor(bobTimer / Math.PI);

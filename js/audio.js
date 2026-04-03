@@ -328,27 +328,32 @@ const AudioManager = (() => {
     /**
      * Play a single footstep sound on carpet.
      * Generates a soft thud + fabric scuff via oscillator + filtered noise.
-     * @param {boolean} sprinting - If true, louder and deeper
+     * @param {boolean} sprinting  - If true, louder and deeper
      * @param {number}  [intensity=1] - 0-1 amplitude multiplier (from bob amplitude)
+     * @param {boolean} [crouching=false] - If true, quieter and more muffled
      */
-    function playFootstep(sprinting, intensity) {
+    function playFootstep(sprinting, intensity, crouching) {
         if (!audioCtx) return;
         resume();
 
         const amp = (intensity != null ? intensity : 1.0);
         if (amp < 0.15) return;               // too quiet — skip
 
+        // Crouch reduces volume and shifts to softer/higher frequencies
+        const crouchMult = crouching ? 0.35 : 1.0;
+
         const now  = audioCtx.currentTime;
-        const vol  = (sprinting ? 0.28 : 0.16) * amp;
-        const dur  = sprinting ? 0.14 : 0.11;
+        const vol  = (sprinting ? 0.28 : 0.16) * amp * crouchMult;
+        const dur  = crouching ? 0.08 : (sprinting ? 0.14 : 0.11);
 
         // --- Soft thud (low sine burst) ---
         const thud = audioCtx.createOscillator();
         thud.type = 'sine';
-        const baseFreq = sprinting ? 55 : 70;
+        // Crouching uses higher freq for a lighter, careful step
+        const baseFreq = crouching ? 90 : (sprinting ? 55 : 70);
         // Slight random variation so it doesn't sound robotic
         thud.frequency.setValueAtTime(baseFreq + Math.random() * 15, now);
-        thud.frequency.exponentialRampToValueAtTime(30, now + dur);
+        thud.frequency.exponentialRampToValueAtTime(crouching ? 45 : 30, now + dur);
 
         const thudGain = audioCtx.createGain();
         thudGain.gain.setValueAtTime(vol, now);
@@ -360,7 +365,7 @@ const AudioManager = (() => {
         thud.stop(now + dur + 0.01);
 
         // --- Carpet scuff (band-passed noise) ---
-        const scuffLen = audioCtx.sampleRate * (sprinting ? 0.10 : 0.07);
+        const scuffLen = audioCtx.sampleRate * (crouching ? 0.05 : (sprinting ? 0.10 : 0.07));
         const noiseBuf = audioCtx.createBuffer(1, scuffLen, audioCtx.sampleRate);
         const nd = noiseBuf.getChannelData(0);
         for (let i = 0; i < scuffLen; i++) {
@@ -370,17 +375,17 @@ const AudioManager = (() => {
         noise.buffer = noiseBuf;
 
         const noiseGain = audioCtx.createGain();
-        const scuffVol = (sprinting ? 0.14 : 0.08) * amp;
+        const scuffVol = (sprinting ? 0.14 : 0.08) * amp * crouchMult;
         noiseGain.gain.setValueAtTime(scuffVol, now);
         noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.9);
 
-        // Band-pass: keep 200–1200 Hz for a muffled carpet sound
+        // Band-pass: crouching uses a tighter, more muffled band
         const hp = audioCtx.createBiquadFilter();
         hp.type = 'highpass';
-        hp.frequency.value = 200;
+        hp.frequency.value = crouching ? 300 : 200;
         const lp = audioCtx.createBiquadFilter();
         lp.type = 'lowpass';
-        lp.frequency.value = sprinting ? 1400 : 1000;
+        lp.frequency.value = crouching ? 700 : (sprinting ? 1400 : 1000);
 
         noise.connect(hp);
         hp.connect(lp);
