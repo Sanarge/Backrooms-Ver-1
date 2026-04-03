@@ -134,6 +134,9 @@ const Game = (() => {
         Props.init(scene);
         Props.placeSpawnProps(spawn);
 
+        // --- Initialize physics & interaction engine ---
+        Physics.init(scene, camera, collisionData);
+
         // Event listeners (only once)
         if (!Game._listenersAdded) {
             window.addEventListener('resize', onResize);
@@ -287,6 +290,9 @@ const Game = (() => {
         // Atmosphere (distant sounds, visual unease, watcher)
         const camDirs = Player.getCameraDirections();
         Atmosphere.update(dt, playerPos, camDirs.forward);
+
+        // Physics & interaction (props)
+        Physics.update(dt);
 
         // Render
         renderer.render(scene, camera);

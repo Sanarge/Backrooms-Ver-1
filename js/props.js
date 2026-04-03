@@ -3,6 +3,8 @@
    ─────────────────────────────────────────
    Loads and places 3D models (GLB/GLTF)
    into the backrooms environment.
+   Registers props with Physics engine
+   for interaction.
    ======================================== */
 
 const Props = (() => {
@@ -17,13 +19,14 @@ const Props = (() => {
     }
 
     /**
-     * Load a GLB model and place it in the scene, with optional collision box.
+     * Load a GLB model and place it in the scene, with optional collision and physics.
      * @param {string} url - path to .glb file
      * @param {object} opts - {
      *   position: {x,y,z},
      *   rotation: {x,y,z},
      *   scale: number|{x,y,z},
-     *   collision: { halfW, halfD, height } — optional hitbox dimensions
+     *   collision: { halfW, halfD, height },
+     *   physics: { mass, halfW, halfD, height } — if set, registers with Physics engine
      * }
      */
     function placeModel(url, opts) {
@@ -61,6 +64,16 @@ const Props = (() => {
                 _scene.add(model);
                 _loadedModels.push(model);
                 console.log('[Props] Loaded: ' + url);
+
+                // Register with physics engine if specified
+                if (opts.physics) {
+                    Physics.addBody(model, {
+                        mass:   opts.physics.mass   || 1.0,
+                        halfW:  opts.physics.halfW  || 0.3,
+                        halfD:  opts.physics.halfD  || 0.3,
+                        height: opts.physics.height || 0.7,
+                    });
+                }
             },
             undefined,
             function (err) {
@@ -68,14 +81,25 @@ const Props = (() => {
             }
         );
 
-        // Register collision hitbox if specified
-        if (opts.collision) {
+        // Register static collision if specified (and no physics)
+        if (opts.collision && !opts.physics) {
             Environment.addPartition({
                 x: pos.x,
                 z: pos.z,
                 halfW: opts.collision.halfW,
                 halfD: opts.collision.halfD,
                 height: opts.collision.height,
+            });
+        }
+
+        // If physics, add initial collision partition (physics will manage it)
+        if (opts.physics) {
+            Environment.addPartition({
+                x: pos.x,
+                z: pos.z,
+                halfW: opts.physics.halfW || 0.3,
+                halfD: opts.physics.halfD || 0.3,
+                height: opts.physics.height || 0.7,
             });
         }
     }
@@ -85,12 +109,12 @@ const Props = (() => {
      * @param {THREE.Vector3} spawnPos
      */
     function placeSpawnProps(spawnPos) {
-        // Chair — placed in front and to the right of spawn, away from walls
+        // Chair — interactive physics prop near spawn
         placeModel('assets/chair.glb', {
             position: { x: spawnPos.x + 2, y: 0, z: spawnPos.z - 1 },
             rotation: { x: 0, y: -0.5, z: 0 },
             scale: 0.6,
-            collision: { halfW: 0.3, halfD: 0.3, height: 0.7 },
+            physics: { mass: 3.0, halfW: 0.3, halfD: 0.3, height: 0.7 },
         });
     }
 
