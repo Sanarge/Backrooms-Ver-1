@@ -473,7 +473,7 @@ const Atmosphere = (() => {
 
         // Boosted for presence — still distant but clearly audible
         const g = _audioCtx.createGain();
-        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 1.2, now);
+        g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * 4.0, now);
 
         src.connect(g);
         g.connect(panner);

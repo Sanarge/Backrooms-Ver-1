@@ -298,7 +298,7 @@ const Player = (() => {
             case 'Space': keys.jump = true; break;
             case 'ShiftLeft': case 'ShiftRight': keys.sprint = true; break;
             case 'KeyC':
-                keys.crouch = true; break;
+                keys.crouch = !keys.crouch; break;
         }
     }
 
@@ -310,8 +310,6 @@ const Player = (() => {
             case 'KeyD': keys.right = false; break;
             case 'Space': keys.jump = false; break;
             case 'ShiftLeft': case 'ShiftRight': keys.sprint = false; break;
-            case 'KeyC':
-                keys.crouch = false; break;
         }
     }
 
