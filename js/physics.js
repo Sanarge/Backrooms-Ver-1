@@ -4,90 +4,126 @@
    Handles:
    1. Rigid-body physics for props (gravity,
       velocity, friction, bounce, rotation)
+      with proper bounding-box collision
    2. Raycasting to detect clickable objects
    3. Pick-up / carry / throw mechanics
+   4. Realistic tipping & settling
    ======================================== */
 
-const Physics = (() => {
+var Physics = (function () {
 
     // =========================================
     //  CONSTANTS
     // =========================================
 
-    const GRAVITY          = -12.0;
-    const FLOOR_Y          = 0.0;
-    const FRICTION         = 0.92;
-    const AIR_FRICTION     = 0.995;
-    const BOUNCE_FACTOR    = 0.3;
-    const ANGULAR_FRICTION = 0.90;
-    const SLEEP_THRESHOLD  = 0.05;
-    const ANGULAR_SLEEP    = 0.02;
+    var GRAVITY          = -12.0;
+    var FLOOR_Y          = 0.0;
+    var CEILING_Y        = 3.0;     // matches WALL_HEIGHT in environment.js
+    var FRICTION         = 0.88;
+    var AIR_FRICTION     = 0.995;
+    var BOUNCE_FACTOR    = 0.25;
+    var BOUNCE_MIN       = 0.8;     // below this impact speed, no bounce
+    var ANGULAR_FRICTION = 0.88;
+    var SLEEP_THRESHOLD  = 0.08;
+    var ANGULAR_SLEEP    = 0.05;
+    var MAX_SUBSTEPS     = 4;       // physics substeps per frame to prevent tunneling
+    var SUBSTEP_DT       = 0.008;   // ~125Hz physics
 
     // Interaction
-    const PICK_UP_RANGE    = 3.5;
-    const CARRY_DISTANCE   = 2.0;
-    const CARRY_HEIGHT     = -0.3;
-    const CARRY_LERP_SPEED = 10.0;
-    const THROW_FORCE      = 12.0;
-    const THROW_FORCE_SPRINT = 18.0;
+    var PICK_UP_RANGE    = 3.5;
+    var CARRY_DISTANCE   = 2.0;
+    var CARRY_HEIGHT     = -0.3;
+    var CARRY_LERP_SPEED = 10.0;
+    var THROW_SPEED_THRESHOLD = 5.0;  // carry speed above this = throw
+    var THROW_FORCE      = 12.0;
+    var THROW_FORCE_SPRINT = 18.0;
 
     // Collision
-    const WALL_BOUNCE      = 0.2;
+    var WALL_BOUNCE      = 0.15;
 
     // =========================================
     //  STATE
     // =========================================
 
-    let _scene    = null;
-    let _camera   = null;
-    let _colData  = null;
+    var _scene    = null;
+    var _camera   = null;
+    var _colData  = null;
 
-    /** @type {Array} */
-    const _bodies = [];
+    var _bodies = [];
 
     // Interaction state
-    let _heldBody       = null;
-    let _isHolding      = false;
-    let _mouseDown      = false;
-    let _mouseDownTime  = 0;
-    let _lastCarryPos   = null;
-    let _prevCarryPos   = null;
-    let _carryVelocity  = new THREE.Vector3();
+    var _heldBody       = null;
+    var _mouseDown      = false;
+    var _mouseDownTime  = 0;
+    var _lastCarryPos   = null;
+    var _prevCarryPos   = null;
+    var _carryVelocity  = new THREE.Vector3();
 
     // Raycaster
-    const _raycaster = new THREE.Raycaster();
-    const _screenCenter = new THREE.Vector2(0, 0);
+    var _raycaster = new THREE.Raycaster();
+    var _screenCenter = new THREE.Vector2(0, 0);
+    var _isLookingAtPickupable = false;
 
-    // Crosshair state
-    let _isLookingAtPickupable = false;
+    // Temp vectors (reuse to avoid GC)
+    var _tmpVec = new THREE.Vector3();
+    var _tmpBox = new THREE.Box3();
 
     // =========================================
     //  PHYSICS BODY
     // =========================================
 
+    /**
+     * Register a mesh as a physics-enabled prop.
+     * Computes actual bounding box from the model geometry.
+     */
     function addBody(mesh, opts) {
-        const body = {
-            mesh:       mesh,
-            velocity:   new THREE.Vector3(0, 0, 0),
-            angularVel: new THREE.Vector3(0, 0, 0),
-            mass:       opts.mass   || 1.0,
-            halfW:      opts.halfW  || 0.3,
-            halfD:      opts.halfD  || 0.3,
-            height:     opts.height || 0.7,
-            isAwake:    false,
-            isHeld:     false,
+        // Compute the actual bounding box of the model in local space
+        _tmpBox.setFromObject(mesh);
+        var size = new THREE.Vector3();
+        _tmpBox.getSize(size);
+        var center = new THREE.Vector3();
+        _tmpBox.getCenter(center);
+
+        // The offset from the mesh origin to the bounding box bottom
+        var bottomOffset = _tmpBox.min.y - mesh.position.y;
+
+        var body = {
+            mesh:         mesh,
+            velocity:     new THREE.Vector3(0, 0, 0),
+            angularVel:   new THREE.Vector3(0, 0, 0),
+            mass:         opts.mass   || 1.0,
+            // Actual model dimensions
+            boxWidth:     size.x,
+            boxHeight:    size.y,
+            boxDepth:     size.z,
+            halfW:        size.x / 2,
+            halfD:        size.z / 2,
+            height:       size.y,
+            bottomOffset: bottomOffset,  // how far below mesh.position.y the bottom is
+            // Collision for partitions (slightly smaller than visual)
+            partHalfW:    opts.halfW  || size.x * 0.4,
+            partHalfD:    opts.halfD  || size.z * 0.4,
+            partHeight:   opts.height || size.y * 0.5,
+            isAwake:      false,
+            isHeld:       false,
+            isTipping:    false,
+            tipAxis:      null,       // which axis it's tipping on
+            tipDirection: 0,          // +1 or -1
             _partitionData: null,
         };
+
         _bodies.push(body);
 
-        // Tag all child meshes so raycaster can find the body
+        // Tag all child meshes for raycasting
         mesh.traverse(function (child) {
             if (child.isMesh) {
                 child.userData._physicsBody = body;
             }
         });
 
-        console.log('[Physics] Body registered — meshes tagged, total bodies: ' + _bodies.length);
+        console.log('[Physics] Body registered — size: ' +
+            size.x.toFixed(2) + ' x ' + size.y.toFixed(2) + ' x ' + size.z.toFixed(2) +
+            ', bottomOffset: ' + bottomOffset.toFixed(3));
         return body;
     }
 
@@ -116,25 +152,23 @@ const Physics = (() => {
         _mouseDown = true;
         _mouseDownTime = performance.now();
 
-        if (_heldBody) return;  // already holding something
+        if (_heldBody) return;
         if (_bodies.length === 0) return;
 
-        // Raycast from camera center
         _raycaster.setFromCamera(_screenCenter, _camera);
 
-        // Test against all body root meshes recursively
-        const rootMeshes = _bodies.map(function (b) { return b.mesh; });
-        const hits = _raycaster.intersectObjects(rootMeshes, true);
+        var rootMeshes = [];
+        for (var i = 0; i < _bodies.length; i++) {
+            rootMeshes.push(_bodies[i].mesh);
+        }
+        var hits = _raycaster.intersectObjects(rootMeshes, true);
 
         if (hits.length === 0) return;
+        if (hits[0].distance > PICK_UP_RANGE) return;
 
-        // Find which body was hit
-        const hitObj = hits[0];
-        if (hitObj.distance > PICK_UP_RANGE) return;
-
-        // Walk up the parent chain to find the tagged object
-        let body = null;
-        let obj = hitObj.object;
+        // Walk parent chain to find body
+        var body = null;
+        var obj = hits[0].object;
         while (obj) {
             if (obj.userData && obj.userData._physicsBody) {
                 body = obj.userData._physicsBody;
@@ -142,25 +176,21 @@ const Physics = (() => {
             }
             obj = obj.parent;
         }
-
         if (!body) return;
 
-        // Pick up!
+        // Pick up
         _heldBody = body;
         body.isHeld = true;
         body.isAwake = false;
+        body.isTipping = false;
         body.velocity.set(0, 0, 0);
         body.angularVel.set(0, 0, 0);
 
-        // Remove partition collision while held
         _removePartition(body);
 
-        // Init carry tracking
         _lastCarryPos = body.mesh.position.clone();
         _prevCarryPos = body.mesh.position.clone();
         _carryVelocity.set(0, 0, 0);
-
-        console.log('[Physics] Picked up object');
     }
 
     function _onMouseUp(e) {
@@ -176,50 +206,114 @@ const Physics = (() => {
         var carrySpeed = _carryVelocity.length();
         var fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
 
-        if (carrySpeed > 5.0) {
-            // === THROW — player was actively swinging/flinging ===
+        if (carrySpeed > THROW_SPEED_THRESHOLD) {
+            // === THROW — player was actively flinging ===
             var throwVel = _carryVelocity.clone();
             throwVel.add(fwd.clone().multiplyScalar(THROW_FORCE * 0.3));
             body.velocity.copy(throwVel);
 
-            // Strong tumble
+            // Strong tumble on throw
             body.angularVel.set(
-                (Math.random() - 0.5) * 6,
-                (Math.random() - 0.5) * 4,
-                (Math.random() - 0.5) * 6
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 3,
+                (Math.random() - 0.5) * 5
             );
-            console.log('[Physics] Threw object, vel: ' + throwVel.length().toFixed(1));
 
         } else {
-            // === DROP — just let go, no throw ===
-            // Only inherit a fraction of carry movement (natural hand release)
+            // === DROP — just release ===
             body.velocity.set(
-                _carryVelocity.x * 0.15,
-                -0.5,   // slight downward nudge (gravity will do the rest)
-                _carryVelocity.z * 0.15
+                _carryVelocity.x * 0.1,
+                -0.3,
+                _carryVelocity.z * 0.1
             );
 
-            // Very gentle tumble — might tip over, might not
-            var tipChance = Math.random();
-            if (tipChance < 0.3) {
-                // Stays mostly upright
+            // 70% chance: upright, 30% chance: slight tilt that leads to falling
+            if (Math.random() < 0.7) {
+                // Mostly upright — very gentle wobble
                 body.angularVel.set(
+                    (Math.random() - 0.5) * 0.2,
                     (Math.random() - 0.5) * 0.3,
-                    (Math.random() - 0.5) * 0.5,
-                    (Math.random() - 0.5) * 0.3
+                    (Math.random() - 0.5) * 0.2
                 );
             } else {
-                // Slight wobble
-                body.angularVel.set(
-                    (Math.random() - 0.5) * 1.0,
-                    (Math.random() - 0.5) * 0.8,
-                    (Math.random() - 0.5) * 1.0
-                );
+                // Tilt — will tip over onto a side
+                _startTip(body);
             }
-            console.log('[Physics] Dropped object gently');
         }
 
         body.isAwake = true;
+    }
+
+    // =========================================
+    //  TIPPING SYSTEM
+    // =========================================
+
+    /**
+     * Start a natural-looking tip. Pick a random direction
+     * (forward, backward, left, right) and apply a gentle
+     * angular impulse that will cause the chair to fall that way.
+     */
+    function _startTip(body) {
+        var direction = Math.floor(Math.random() * 4);
+        var tipStrength = 1.5 + Math.random() * 1.0;  // gentle but enough to tip
+
+        switch (direction) {
+            case 0: // tip forward (fall on front)
+                body.angularVel.x = -tipStrength;
+                body.tipAxis = 'x';
+                body.tipDirection = -1;
+                break;
+            case 1: // tip backward (fall on back)
+                body.angularVel.x = tipStrength;
+                body.tipAxis = 'x';
+                body.tipDirection = 1;
+                break;
+            case 2: // tip left
+                body.angularVel.z = tipStrength;
+                body.tipAxis = 'z';
+                body.tipDirection = 1;
+                break;
+            case 3: // tip right
+                body.angularVel.z = -tipStrength;
+                body.tipAxis = 'z';
+                body.tipDirection = -1;
+                break;
+        }
+
+        // Small random yaw spin
+        body.angularVel.y = (Math.random() - 0.5) * 0.5;
+        body.isTipping = true;
+    }
+
+    /**
+     * After a throw with tumbling, check if the chair should
+     * settle on its side based on current rotation.
+     */
+    function _checkSettleOrientation(body) {
+        var rx = body.mesh.rotation.x % (Math.PI * 2);
+        var rz = body.mesh.rotation.z % (Math.PI * 2);
+
+        // Normalize to -PI to PI
+        if (rx > Math.PI) rx -= Math.PI * 2;
+        if (rx < -Math.PI) rx += Math.PI * 2;
+        if (rz > Math.PI) rz -= Math.PI * 2;
+        if (rz < -Math.PI) rz += Math.PI * 2;
+
+        // Find the nearest stable orientation
+        // 0 = upright, ±PI/2 = on side, ±PI = upside down
+        var absRx = Math.abs(rx);
+        var absRz = Math.abs(rz);
+
+        // Determine which axis has more tilt
+        if (absRx > 0.3 || absRz > 0.3) {
+            // Has significant tilt — settle toward nearest 90-degree rest
+            var targetRx = Math.round(rx / (Math.PI / 2)) * (Math.PI / 2);
+            var targetRz = Math.round(rz / (Math.PI / 2)) * (Math.PI / 2);
+
+            // Gentle angular velocity toward target
+            body.angularVel.x += (targetRx - rx) * 2.0;
+            body.angularVel.z += (targetRz - rz) * 2.0;
+        }
     }
 
     // =========================================
@@ -228,10 +322,10 @@ const Physics = (() => {
 
     function _removePartition(body) {
         if (!_colData || !_colData.partitions) return;
-        const pos = body.mesh.position;
-        const parts = _colData.partitions;
-        for (let i = parts.length - 1; i >= 0; i--) {
-            const p = parts[i];
+        var pos = body.mesh.position;
+        var parts = _colData.partitions;
+        for (var i = parts.length - 1; i >= 0; i--) {
+            var p = parts[i];
             if (Math.abs(p.x - pos.x) < 1.0 && Math.abs(p.z - pos.z) < 1.0) {
                 body._partitionData = parts.splice(i, 1)[0];
                 return;
@@ -241,13 +335,13 @@ const Physics = (() => {
 
     function _addPartition(body) {
         if (!_colData || !_colData.partitions) return;
-        const pos = body.mesh.position;
+        var pos = body.mesh.position;
         _colData.partitions.push({
             x: pos.x,
             z: pos.z,
-            halfW: body.halfW,
-            halfD: body.halfD,
-            height: body.height,
+            halfW: body.partHalfW,
+            halfD: body.partHalfD,
+            height: body.partHeight,
         });
     }
 
@@ -257,42 +351,69 @@ const Physics = (() => {
 
     function _isWall(x, z) {
         if (!_colData) return false;
-        const col = Math.floor(x / _colData.tileSize);
-        const row = Math.floor(z / _colData.tileSize);
+        var col = Math.floor(x / _colData.tileSize);
+        var row = Math.floor(z / _colData.tileSize);
         if (row < 0 || row >= _colData.rows || col < 0 || col >= _colData.cols) return true;
         return _colData.map[row][col] === 0;
     }
 
     function _resolveWallCollisions(body) {
-        const pos = body.mesh.position;
-        const hw = body.halfW;
-        const hd = body.halfD;
-        const ts = _colData ? _colData.tileSize : 4.0;
+        var pos = body.mesh.position;
+        var hw = body.halfW * 0.5;  // use smaller collision for walls
+        var hd = body.halfD * 0.5;
+        var ts = _colData ? _colData.tileSize : 4.0;
 
         if (_isWall(pos.x + hw, pos.z)) {
-            const col = Math.floor((pos.x + hw) / ts);
+            var col = Math.floor((pos.x + hw) / ts);
             pos.x = col * ts - hw - 0.01;
             body.velocity.x = -Math.abs(body.velocity.x) * WALL_BOUNCE;
             body.angularVel.y += (Math.random() - 0.5) * 2;
+            _playImpactSound(Math.abs(body.velocity.x) * 0.15);
         }
         if (_isWall(pos.x - hw, pos.z)) {
-            const col = Math.floor((pos.x - hw) / ts);
-            pos.x = (col + 1) * ts + hw + 0.01;
+            var col2 = Math.floor((pos.x - hw) / ts);
+            pos.x = (col2 + 1) * ts + hw + 0.01;
             body.velocity.x = Math.abs(body.velocity.x) * WALL_BOUNCE;
             body.angularVel.y += (Math.random() - 0.5) * 2;
+            _playImpactSound(Math.abs(body.velocity.x) * 0.15);
         }
         if (_isWall(pos.x, pos.z + hd)) {
-            const row = Math.floor((pos.z + hd) / ts);
+            var row = Math.floor((pos.z + hd) / ts);
             pos.z = row * ts - hd - 0.01;
             body.velocity.z = -Math.abs(body.velocity.z) * WALL_BOUNCE;
             body.angularVel.y += (Math.random() - 0.5) * 2;
+            _playImpactSound(Math.abs(body.velocity.z) * 0.15);
         }
         if (_isWall(pos.x, pos.z - hd)) {
-            const row = Math.floor((pos.z - hd) / ts);
-            pos.z = (row + 1) * ts + hd + 0.01;
+            var row2 = Math.floor((pos.z - hd) / ts);
+            pos.z = (row2 + 1) * ts + hd + 0.01;
             body.velocity.z = Math.abs(body.velocity.z) * WALL_BOUNCE;
             body.angularVel.y += (Math.random() - 0.5) * 2;
+            _playImpactSound(Math.abs(body.velocity.z) * 0.15);
         }
+    }
+
+    /**
+     * Get the effective floor offset for a rotated object.
+     * When the object tips, its bounding box extends below the origin.
+     * Returns how high the origin should be above FLOOR_Y.
+     */
+    function _getFloorOffset(body) {
+        // Recompute bounding box with current rotation
+        _tmpBox.setFromObject(body.mesh);
+        // The lowest point of the model in world space
+        var lowestY = _tmpBox.min.y;
+        // The offset needed to keep the lowest point at FLOOR_Y
+        return body.mesh.position.y - lowestY;
+    }
+
+    /**
+     * Get the highest point for ceiling collision.
+     */
+    function _getCeilingOffset(body) {
+        _tmpBox.setFromObject(body.mesh);
+        var highestY = _tmpBox.max.y;
+        return highestY - body.mesh.position.y;
     }
 
     // =========================================
@@ -303,11 +424,20 @@ const Physics = (() => {
         _updateCarry(dt);
         _updateCrosshair();
 
-        for (let i = 0; i < _bodies.length; i++) {
-            const body = _bodies[i];
+        for (var i = 0; i < _bodies.length; i++) {
+            var body = _bodies[i];
             if (body.isHeld) continue;
             if (!body.isAwake) continue;
-            _updateBody(body, dt);
+
+            // Substep physics for stability
+            var remaining = dt;
+            var steps = 0;
+            while (remaining > 0 && steps < MAX_SUBSTEPS) {
+                var stepDt = Math.min(remaining, SUBSTEP_DT);
+                _updateBody(body, stepDt);
+                remaining -= stepDt;
+                steps++;
+            }
         }
     }
 
@@ -316,31 +446,40 @@ const Physics = (() => {
         var vel = body.velocity;
         var angVel = body.angularVel;
 
-        // Cap dt to prevent tunneling through floor on lag spikes
-        var stepDt = Math.min(dt, 0.02);
-
         // Gravity
-        vel.y += GRAVITY * stepDt;
+        vel.y += GRAVITY * dt;
 
-        // Clamp max downward velocity to prevent floor phasing
-        if (vel.y < -20) vel.y = -20;
+        // Clamp max velocity
+        if (vel.y < -25) vel.y = -25;
+        if (vel.y > 25) vel.y = 25;
 
         // Move
-        pos.x += vel.x * stepDt;
-        pos.y += vel.y * stepDt;
-        pos.z += vel.z * stepDt;
+        pos.x += vel.x * dt;
+        pos.y += vel.y * dt;
+        pos.z += vel.z * dt;
 
-        // Floor collision — always enforce, never let Y go below floor
-        if (pos.y <= FLOOR_Y) {
-            pos.y = FLOOR_Y;
+        // Apply angular velocity
+        body.mesh.rotation.x += angVel.x * dt;
+        body.mesh.rotation.y += angVel.y * dt;
+        body.mesh.rotation.z += angVel.z * dt;
 
-            if (Math.abs(vel.y) > 1.0) {
+        // --- Floor collision using actual model bounds ---
+        var floorOffset = _getFloorOffset(body);
+        var minY = FLOOR_Y + floorOffset;
+
+        if (pos.y < minY) {
+            pos.y = minY;
+
+            var impactSpeed = Math.abs(vel.y);
+            if (impactSpeed > BOUNCE_MIN) {
                 vel.y = -vel.y * BOUNCE_FACTOR;
-                // Clamp bounce so it doesn't go crazy
                 if (vel.y > 8) vel.y = 8;
-                _playImpactSound(Math.abs(vel.y) * 0.1 + Math.sqrt(vel.x * vel.x + vel.z * vel.z) * 0.05);
-                angVel.x += (Math.random() - 0.5) * Math.min(Math.abs(vel.y), 3) * 0.3;
-                angVel.z += (Math.random() - 0.5) * Math.min(Math.abs(vel.y), 3) * 0.3;
+                _playImpactSound(impactSpeed * 0.08);
+
+                // Impact can cause a little extra tumble
+                var tumbleAmount = Math.min(impactSpeed * 0.15, 2.0);
+                angVel.x += (Math.random() - 0.5) * tumbleAmount;
+                angVel.z += (Math.random() - 0.5) * tumbleAmount;
             } else {
                 vel.y = 0;
             }
@@ -351,31 +490,46 @@ const Physics = (() => {
             angVel.x *= ANGULAR_FRICTION;
             angVel.y *= ANGULAR_FRICTION;
             angVel.z *= ANGULAR_FRICTION;
+
+            // Help the object settle into a stable orientation
+            _checkSettleOrientation(body);
         } else {
             vel.x *= AIR_FRICTION;
             vel.z *= AIR_FRICTION;
         }
 
-        // Extra safety: never below floor
-        if (pos.y < FLOOR_Y) pos.y = FLOOR_Y;
+        // --- Ceiling collision using actual model bounds ---
+        var ceilOffset = _getCeilingOffset(body);
+        var maxY = CEILING_Y - ceilOffset;
+        if (maxY < minY) maxY = minY;  // safety
 
-        // Wall collisions
+        if (pos.y > maxY) {
+            pos.y = maxY;
+            if (vel.y > 0) {
+                vel.y = -vel.y * 0.2;  // bounce down from ceiling
+                _playImpactSound(Math.abs(vel.y) * 0.05);
+            }
+        }
+
+        // --- Wall collisions ---
         if (_colData) {
             _resolveWallCollisions(body);
         }
 
-        // Apply angular velocity to rotation
-        body.mesh.rotation.x += angVel.x * dt;
-        body.mesh.rotation.y += angVel.y * dt;
-        body.mesh.rotation.z += angVel.z * dt;
+        // --- Absolute floor safety ---
+        _tmpBox.setFromObject(body.mesh);
+        if (_tmpBox.min.y < FLOOR_Y - 0.01) {
+            pos.y += (FLOOR_Y - _tmpBox.min.y);
+        }
 
-        // Sleep check
+        // --- Sleep check ---
         var speed = vel.length();
         var angSpeed = angVel.length();
-        if (speed < SLEEP_THRESHOLD && angSpeed < ANGULAR_SLEEP && pos.y <= FLOOR_Y + 0.01) {
+        if (speed < SLEEP_THRESHOLD && angSpeed < ANGULAR_SLEEP && pos.y <= minY + 0.05) {
             vel.set(0, 0, 0);
             angVel.set(0, 0, 0);
             body.isAwake = false;
+            body.isTipping = false;
             _addPartition(body);
         }
     }
@@ -391,27 +545,26 @@ const Physics = (() => {
         var fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
         var up = new THREE.Vector3(0, 1, 0);
 
-        // Target position: in front of camera
         var targetPos = _camera.position.clone()
             .add(fwd.clone().multiplyScalar(CARRY_DISTANCE))
             .add(up.clone().multiplyScalar(CARRY_HEIGHT));
 
-        // Keep above floor
+        // Keep within room bounds
         if (targetPos.y < 0.3) targetPos.y = 0.3;
+        if (targetPos.y > CEILING_Y - 0.5) targetPos.y = CEILING_Y - 0.5;
 
-        // Smoothly move toward target
         _prevCarryPos = _lastCarryPos ? _lastCarryPos.clone() : targetPos.clone();
         body.mesh.position.lerp(targetPos, Math.min(1.0, CARRY_LERP_SPEED * dt));
         _lastCarryPos = body.mesh.position.clone();
 
-        // Track carry velocity for throw momentum
+        // Track carry velocity for throw detection
         if (dt > 0) {
             _carryVelocity.copy(_lastCarryPos).sub(_prevCarryPos).divideScalar(dt);
         }
 
-        // Smoothly level out rotation while held
-        body.mesh.rotation.x *= 0.85;
-        body.mesh.rotation.z *= 0.85;
+        // Smoothly level out rotation while held (return to upright)
+        body.mesh.rotation.x += (0 - body.mesh.rotation.x) * 0.12;
+        body.mesh.rotation.z += (0 - body.mesh.rotation.z) * 0.12;
     }
 
     // =========================================
@@ -427,10 +580,12 @@ const Physics = (() => {
             return;
         }
 
-        // Raycast to check if looking at a pickupable object
         _raycaster.setFromCamera(_screenCenter, _camera);
 
-        var rootMeshes = _bodies.map(function (b) { return b.mesh; });
+        var rootMeshes = [];
+        for (var i = 0; i < _bodies.length; i++) {
+            rootMeshes.push(_bodies[i].mesh);
+        }
         var hits = _raycaster.intersectObjects(rootMeshes, true);
         var canPick = hits.length > 0 && hits[0].distance <= PICK_UP_RANGE;
 
@@ -478,7 +633,7 @@ const Physics = (() => {
         osc.stop(now + 0.2);
 
         // Clatter noise
-        var bufLen = Math.floor(ctx.sampleRate * 0.1);
+        var bufLen = Math.floor(ctx.sampleRate * 0.12);
         var buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
         var data = buf.getChannelData(0);
         for (var i = 0; i < bufLen; i++) {
@@ -488,7 +643,7 @@ const Physics = (() => {
         noise.buffer = buf;
         var noiseGain = ctx.createGain();
         noiseGain.gain.setValueAtTime(vol * 0.6, now);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
         var bp = ctx.createBiquadFilter();
         bp.type = 'bandpass';
         bp.frequency.value = 400 + Math.random() * 300;
@@ -507,9 +662,9 @@ const Physics = (() => {
     function isHolding() { return _heldBody !== null; }
 
     return {
-        init,
-        update,
-        addBody,
-        isHolding,
+        init: init,
+        update: update,
+        addBody: addBody,
+        isHolding: isHolding,
     };
 })();
