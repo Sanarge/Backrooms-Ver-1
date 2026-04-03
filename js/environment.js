@@ -350,9 +350,18 @@ const Environment = (() => {
         return new THREE.Vector3(TILE_SIZE * 1.5, 1.6, TILE_SIZE * 1.5);
     }
 
+    /**
+     * Add a collision partition for props/objects placed after build.
+     * @param {{ x, z, halfW, halfD, height }} p
+     */
+    function addPartition(p) {
+        partitions.push(p);
+    }
+
     return {
         build,
         getCollisionData,
         getSpawnPosition,
+        addPartition,
     };
 })();

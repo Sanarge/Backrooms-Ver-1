@@ -17,9 +17,14 @@ const Props = (() => {
     }
 
     /**
-     * Load a GLB model and place it in the scene.
+     * Load a GLB model and place it in the scene, with optional collision box.
      * @param {string} url - path to .glb file
-     * @param {object} opts - { position: {x,y,z}, rotation: {x,y,z}, scale: number|{x,y,z} }
+     * @param {object} opts - {
+     *   position: {x,y,z},
+     *   rotation: {x,y,z},
+     *   scale: number|{x,y,z},
+     *   collision: { halfW, halfD, height } — optional hitbox dimensions
+     * }
      */
     function placeModel(url, opts) {
         if (!_loader || !_scene) {
@@ -62,6 +67,17 @@ const Props = (() => {
                 console.error('[Props] Failed to load ' + url, err);
             }
         );
+
+        // Register collision hitbox if specified
+        if (opts.collision) {
+            Environment.addPartition({
+                x: pos.x,
+                z: pos.z,
+                halfW: opts.collision.halfW,
+                halfD: opts.collision.halfD,
+                height: opts.collision.height,
+            });
+        }
     }
 
     /**
@@ -69,11 +85,12 @@ const Props = (() => {
      * @param {THREE.Vector3} spawnPos
      */
     function placeSpawnProps(spawnPos) {
-        // Chair — offset slightly from spawn so you see it in front of you
+        // Chair — placed in front and to the right of spawn, away from walls
         placeModel('assets/chair.glb', {
-            position: { x: spawnPos.x + 3, y: 0, z: spawnPos.z + 2 },
-            rotation: { x: 0, y: -0.5, z: 0 },  // angled slightly
-            scale: 1.0,
+            position: { x: spawnPos.x + 2, y: 0, z: spawnPos.z - 1 },
+            rotation: { x: 0, y: -0.5, z: 0 },
+            scale: 0.6,
+            collision: { halfW: 0.3, halfD: 0.3, height: 0.7 },
         });
     }
 
