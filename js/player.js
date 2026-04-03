@@ -105,6 +105,9 @@ const Player = (() => {
     let introAudioStarted = false;
     let introImpactPlayed = false;
 
+    // --- Footstep tracking (synced to head bob cycle) ---
+    let prevBobStep = 0;      // tracks which bob half-cycle we're in
+
     // --- Input ---
     const keys = {
         forward: false, backward: false,
@@ -200,6 +203,7 @@ const Player = (() => {
         yaw = 0;
         pitch = 0;
         bobTimer = 0;
+        prevBobStep = 0;
         velocityY = 0;
         isGrounded = true;
         groundHeight = 0;
@@ -559,6 +563,13 @@ const Player = (() => {
             bobOffsetY = Math.sin(bobTimer * 2) * BOB_AMOUNT_Y * (0.6 + speedFactor * 0.4) * bobAmplitude;
             bobOffsetX = Math.cos(bobTimer) * BOB_AMOUNT_X * (0.5 + speedFactor * 0.5) * bobAmplitude;
             bobRoll = Math.sin(bobTimer) * BOB_ROLL_AMOUNT * (0.5 + speedFactor * 0.5) * bobAmplitude;
+
+            // --- Footstep trigger (one per full bob cycle = one per step) ---
+            const curBobStep = Math.floor(bobTimer / Math.PI);
+            if (curBobStep !== prevBobStep && bobAmplitude > 0.35) {
+                AudioManager.playFootstep(isSprinting, bobAmplitude);
+                prevBobStep = curBobStep;
+            }
         } else if (isGrounded) {
             idleTimer += dt * IDLE_BOB_SPEED;
             bobOffsetY = Math.sin(idleTimer) * IDLE_BOB_AMOUNT;
@@ -566,6 +577,7 @@ const Player = (() => {
 
         if (bobAmplitude < 0.01) {
             bobTimer *= 0.9;
+            prevBobStep = Math.floor(bobTimer / Math.PI);
         }
 
         // --- Landing impact decay ---

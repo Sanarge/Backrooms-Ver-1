@@ -321,6 +321,76 @@ const AudioManager = (() => {
     }
 
     // =========================================
+    //  FOOTSTEP SOUNDS
+    //  Synthesised carpet footsteps, synced to head bob
+    // =========================================
+
+    /**
+     * Play a single footstep sound on carpet.
+     * Generates a soft thud + fabric scuff via oscillator + filtered noise.
+     * @param {boolean} sprinting - If true, louder and deeper
+     * @param {number}  [intensity=1] - 0-1 amplitude multiplier (from bob amplitude)
+     */
+    function playFootstep(sprinting, intensity) {
+        if (!audioCtx) return;
+        resume();
+
+        const amp = (intensity != null ? intensity : 1.0);
+        if (amp < 0.15) return;               // too quiet — skip
+
+        const now  = audioCtx.currentTime;
+        const vol  = (sprinting ? 0.28 : 0.16) * amp;
+        const dur  = sprinting ? 0.14 : 0.11;
+
+        // --- Soft thud (low sine burst) ---
+        const thud = audioCtx.createOscillator();
+        thud.type = 'sine';
+        const baseFreq = sprinting ? 55 : 70;
+        // Slight random variation so it doesn't sound robotic
+        thud.frequency.setValueAtTime(baseFreq + Math.random() * 15, now);
+        thud.frequency.exponentialRampToValueAtTime(30, now + dur);
+
+        const thudGain = audioCtx.createGain();
+        thudGain.gain.setValueAtTime(vol, now);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        thud.connect(thudGain);
+        thudGain.connect(masterGain);
+        thud.start(now);
+        thud.stop(now + dur + 0.01);
+
+        // --- Carpet scuff (band-passed noise) ---
+        const scuffLen = audioCtx.sampleRate * (sprinting ? 0.10 : 0.07);
+        const noiseBuf = audioCtx.createBuffer(1, scuffLen, audioCtx.sampleRate);
+        const nd = noiseBuf.getChannelData(0);
+        for (let i = 0; i < scuffLen; i++) {
+            nd[i] = (Math.random() * 2 - 1) * 0.35;
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuf;
+
+        const noiseGain = audioCtx.createGain();
+        const scuffVol = (sprinting ? 0.14 : 0.08) * amp;
+        noiseGain.gain.setValueAtTime(scuffVol, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.9);
+
+        // Band-pass: keep 200–1200 Hz for a muffled carpet sound
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 200;
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = sprinting ? 1400 : 1000;
+
+        noise.connect(hp);
+        hp.connect(lp);
+        lp.connect(noiseGain);
+        noiseGain.connect(masterGain);
+        noise.start(now);
+        noise.stop(now + dur + 0.01);
+    }
+
+    // =========================================
     //  SPATIAL SOURCE VOLUME CONTROL
     //  Mute/fade the positional fluorescent hums
     // =========================================
@@ -633,6 +703,7 @@ const AudioManager = (() => {
         stopAll,
         rebuildSources,
         playFallSound,
+        playFootstep,
         muteSpatialSources,
         fadeSpatialSourcesIn,
         muteSource,
@@ -648,4 +719,3 @@ const AudioManager = (() => {
         dispose,
     };
 })();
-
