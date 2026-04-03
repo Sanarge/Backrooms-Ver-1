@@ -1,13 +1,16 @@
 /* ========================================
-   Physics & Interaction Engine
+   Physics & Interaction Engine  (cannon.js)
    ─────────────────────────────────────────
-   Handles:
-   1. Rigid-body physics for props (gravity,
-      velocity, friction, bounce, rotation)
-      with proper bounding-box collision
-   2. Raycasting to detect clickable objects
-   3. Pick-up / carry / throw mechanics
-   4. Realistic tipping & settling
+   Uses cannon.js for true rigid-body physics:
+   • Gravity, friction, restitution
+   • Compound collision shapes (chair = seat + back)
+   • Wall / floor / ceiling static bodies from map
+   • Contact-based impact sounds
+
+   Interaction layer on top:
+   • Raycasting to detect clickable objects
+   • Pick-up / carry / throw mechanics
+   • Crosshair feedback
    ======================================== */
 
 var Physics = (function () {
@@ -16,116 +19,53 @@ var Physics = (function () {
     //  CONSTANTS
     // =========================================
 
-    var GRAVITY          = -12.0;
-    var FLOOR_Y          = 0.0;
-    var CEILING_Y        = 3.0;     // matches WALL_HEIGHT in environment.js
-    var FRICTION         = 0.92;     // more sliding on ground
-    var AIR_FRICTION     = 0.998;    // very little air drag
-    var BOUNCE_FACTOR    = 0.2;
-    var BOUNCE_MIN       = 1.0;     // below this impact speed, no bounce
-    var ANGULAR_FRICTION = 0.94;    // slower rotational damping = smoother tumble
-    var SLEEP_THRESHOLD  = 0.08;
-    var ANGULAR_SLEEP    = 0.05;
-    var MAX_SUBSTEPS     = 4;       // physics substeps per frame to prevent tunneling
-    var SUBSTEP_DT       = 0.008;   // ~125Hz physics
+    var GRAVITY_Y        = -12.0;
+    var CEILING_Y        = 3.0;
 
     // Interaction
     var PICK_UP_RANGE    = 3.5;
     var CARRY_DISTANCE   = 2.0;
     var CARRY_HEIGHT     = -0.3;
     var CARRY_LERP_SPEED = 10.0;
-    var THROW_SPEED_THRESHOLD = 5.0;  // carry speed above this = throw
+    var THROW_SPEED_THRESHOLD = 5.0;
     var THROW_FORCE      = 12.0;
-    var THROW_FORCE_SPRINT = 18.0;
 
-    // Collision
-    var WALL_BOUNCE      = 0.15;
+    // Physics step
+    var FIXED_STEP       = 1 / 120;
+    var MAX_SUB_STEPS    = 3;
+
+    // Sleep → partition thresholds
+    var SLEEP_VEL        = 0.15;
+    var SLEEP_ANG        = 0.15;
+    var SLEEP_TIME       = 0.6;   // seconds below threshold before sleeping
 
     // =========================================
     //  STATE
     // =========================================
 
+    var _world    = null;
     var _scene    = null;
     var _camera   = null;
     var _colData  = null;
 
+    /** Array of body wrappers: { cannonBody, mesh, isHeld, isSleeping, sleepTimer, _partitionData } */
     var _bodies = [];
 
     // Interaction state
     var _heldBody       = null;
     var _mouseDown      = false;
-    var _mouseDownTime  = 0;
     var _lastCarryPos   = null;
     var _prevCarryPos   = null;
     var _carryVelocity  = new THREE.Vector3();
 
     // Raycaster
-    var _raycaster = new THREE.Raycaster();
+    var _raycaster    = new THREE.Raycaster();
     var _screenCenter = new THREE.Vector2(0, 0);
     var _isLookingAtPickupable = false;
 
-    // Temp vectors (reuse to avoid GC)
-    var _tmpVec = new THREE.Vector3();
-    var _tmpBox = new THREE.Box3();
-
-    // =========================================
-    //  PHYSICS BODY
-    // =========================================
-
-    /**
-     * Register a mesh as a physics-enabled prop.
-     * Computes actual bounding box from the model geometry.
-     */
-    function addBody(mesh, opts) {
-        // Compute the actual bounding box of the model in local space
-        _tmpBox.setFromObject(mesh);
-        var size = new THREE.Vector3();
-        _tmpBox.getSize(size);
-        var center = new THREE.Vector3();
-        _tmpBox.getCenter(center);
-
-        // The offset from the mesh origin to the bounding box bottom
-        var bottomOffset = _tmpBox.min.y - mesh.position.y;
-
-        var body = {
-            mesh:         mesh,
-            velocity:     new THREE.Vector3(0, 0, 0),
-            angularVel:   new THREE.Vector3(0, 0, 0),
-            mass:         opts.mass   || 1.0,
-            // Actual model dimensions
-            boxWidth:     size.x,
-            boxHeight:    size.y,
-            boxDepth:     size.z,
-            halfW:        size.x / 2,
-            halfD:        size.z / 2,
-            height:       size.y,
-            bottomOffset: bottomOffset,  // how far below mesh.position.y the bottom is
-            // Collision for partitions (slightly smaller than visual)
-            partHalfW:    opts.halfW  || size.x * 0.4,
-            partHalfD:    opts.halfD  || size.z * 0.4,
-            partHeight:   opts.height || size.y * 0.5,
-            isAwake:      false,
-            isHeld:       false,
-            isTipping:    false,
-            tipAxis:      null,       // which axis it's tipping on
-            tipDirection: 0,          // +1 or -1
-            _partitionData: null,
-        };
-
-        _bodies.push(body);
-
-        // Tag all child meshes for raycasting
-        mesh.traverse(function (child) {
-            if (child.isMesh) {
-                child.userData._physicsBody = body;
-            }
-        });
-
-        console.log('[Physics] Body registered — size: ' +
-            size.x.toFixed(2) + ' x ' + size.y.toFixed(2) + ' x ' + size.z.toFixed(2) +
-            ', bottomOffset: ' + bottomOffset.toFixed(3));
-        return body;
-    }
+    // Impact sound cooldown (prevent rapid-fire sounds)
+    var _lastImpactTime = 0;
+    var IMPACT_COOLDOWN  = 0.06;  // 60 ms
 
     // =========================================
     //  INITIALIZATION
@@ -136,9 +76,232 @@ var Physics = (function () {
         _camera  = camera;
         _colData = collisionData;
 
+        // --- Create cannon.js world ---
+        _world = new CANNON.World();
+        _world.gravity.set(0, GRAVITY_Y, 0);
+        _world.broadphase = new CANNON.SAPBroadphase(_world);
+        _world.solver.iterations = 12;
+        _world.solver.tolerance  = 0.0001;
+        _world.defaultContactMaterial.friction    = 0.4;
+        _world.defaultContactMaterial.restitution = 0.1;
+
+        // --- Materials ---
+        var groundMat = new CANNON.Material('ground');
+        var wallMat   = new CANNON.Material('wall');
+        var propMat   = new CANNON.Material('prop');
+
+        // Ground ↔ Prop
+        _world.addContactMaterial(new CANNON.ContactMaterial(groundMat, propMat, {
+            friction: 0.5,
+            restitution: 0.12,
+        }));
+
+        // Wall ↔ Prop
+        _world.addContactMaterial(new CANNON.ContactMaterial(wallMat, propMat, {
+            friction: 0.25,
+            restitution: 0.08,
+        }));
+
+        // Ceiling ↔ Prop (bouncier)
+        _world.addContactMaterial(new CANNON.ContactMaterial(groundMat, propMat, {
+            friction: 0.3,
+            restitution: 0.15,
+        }));
+
+        // --- Floor (infinite plane at y=0, normal pointing up) ---
+        var floorBody = new CANNON.Body({ mass: 0, material: groundMat });
+        floorBody.addShape(new CANNON.Plane());
+        floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+        _world.addBody(floorBody);
+
+        // --- Ceiling (infinite plane at y=CEILING_Y, normal pointing down) ---
+        var ceilBody = new CANNON.Body({ mass: 0, material: groundMat });
+        ceilBody.addShape(new CANNON.Plane());
+        ceilBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+        ceilBody.position.set(0, CEILING_Y, 0);
+        _world.addBody(ceilBody);
+
+        // --- Wall bodies from map grid ---
+        _buildWallBodies(collisionData, wallMat);
+
+        // --- Partition static bodies (half-height walls in the map) ---
+        _buildPartitionBodies(collisionData, wallMat);
+
+        // Store prop material for addBody
+        _world._propMaterial = propMat;
+
+        // --- Mouse events ---
         document.addEventListener('mousedown', _onMouseDown);
-        document.addEventListener('mouseup', _onMouseUp);
-        console.log('[Physics] Initialized');
+        document.addEventListener('mouseup',   _onMouseUp);
+
+        console.log('[Physics] Initialized with cannon.js rigid-body engine');
+    }
+
+    // =========================================
+    //  STATIC WORLD GEOMETRY
+    // =========================================
+
+    /**
+     * Create a static CANNON.Body box for every wall tile (map value 0).
+     */
+    function _buildWallBodies(colData, wallMat) {
+        var map  = colData.map;
+        var ts   = colData.tileSize;   // 4.0
+        var wh   = colData.wallHeight; // 3.0
+        var rows = colData.rows;
+        var cols = colData.cols;
+
+        // Shared shape (all wall tiles are the same size)
+        var wallShape = new CANNON.Box(new CANNON.Vec3(ts / 2, wh / 2, ts / 2));
+
+        for (var r = 0; r < rows; r++) {
+            for (var c = 0; c < cols; c++) {
+                if (map[r][c] === 0) {
+                    var wb = new CANNON.Body({ mass: 0, material: wallMat });
+                    wb.addShape(wallShape);
+                    wb.position.set(
+                        c * ts + ts / 2,
+                        wh / 2,
+                        r * ts + ts / 2
+                    );
+                    _world.addBody(wb);
+                }
+            }
+        }
+    }
+
+    /**
+     * Create static bodies for the half-height partitions placed by Environment.
+     * These are the low wall dividers the player can vault / look over.
+     */
+    function _buildPartitionBodies(colData, wallMat) {
+        if (!colData.partitions) return;
+        for (var i = 0; i < colData.partitions.length; i++) {
+            var p = colData.partitions[i];
+            var shape = new CANNON.Box(new CANNON.Vec3(p.halfW, p.height / 2, p.halfD));
+            var pb = new CANNON.Body({ mass: 0, material: wallMat });
+            pb.addShape(shape);
+            pb.position.set(p.x, p.height / 2, p.z);
+            _world.addBody(pb);
+        }
+    }
+
+    // =========================================
+    //  ADD PHYSICS BODY (for props)
+    // =========================================
+
+    /**
+     * Register a Three.js mesh as a physics-enabled prop.
+     * Creates a CANNON.Body with a compound shape (seat + backrest for chairs).
+     *
+     * @param {THREE.Object3D} mesh - the loaded model root
+     * @param {object} opts - { mass, halfW, halfD, height }
+     * @returns {object} body wrapper
+     */
+    function addBody(mesh, opts) {
+        // Compute actual bounding box from the model
+        var tmpBox = new THREE.Box3().setFromObject(mesh);
+        var size = new THREE.Vector3();
+        tmpBox.getSize(size);
+
+        var mass   = opts.mass   || 1.0;
+        var halfW  = size.x / 2;
+        var halfD  = size.z / 2;
+        var height = size.y;
+
+        // -----------------------------------------------
+        // Compound shape: seat + backrest (L-shape)
+        // Gives realistic collision for a chair model.
+        //
+        //   ┌───┐   ← backrest (thin, tall)
+        //   │   │
+        //   ├───┤   ← seat top
+        //   │   │
+        //   └───┘   ← floor
+        //
+        // The body origin is at the bottom of the model (y=0)
+        // -----------------------------------------------
+
+        var seatH    = height * 0.38;   // seat + legs = bottom ~38% of height
+        var backH    = height - seatH;  // backrest = remaining top portion
+        var backD    = halfD * 0.16;    // backrest is thin
+
+        // Seat box
+        var seatShape = new CANNON.Box(new CANNON.Vec3(halfW, seatH / 2, halfD));
+        var seatOffset = new CANNON.Vec3(0, seatH / 2, 0);
+
+        // Backrest box — sits on top of seat, at the back edge (-Z)
+        var backShape = new CANNON.Box(new CANNON.Vec3(halfW, backH / 2, backD));
+        var backOffset = new CANNON.Vec3(0, seatH + backH / 2, -(halfD - backD));
+
+        // Create cannon body
+        var cb = new CANNON.Body({
+            mass: mass,
+            material: _world._propMaterial,
+            linearDamping:  0.08,
+            angularDamping: 0.15,
+        });
+
+        cb.addShape(seatShape, seatOffset);
+        cb.addShape(backShape, backOffset);
+
+        // Set initial position/rotation from the Three.js mesh
+        cb.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
+        cb.quaternion.set(
+            mesh.quaternion.x,
+            mesh.quaternion.y,
+            mesh.quaternion.z,
+            mesh.quaternion.w
+        );
+
+        // Start asleep (not moving) — prevents initial jitter
+        cb.velocity.set(0, 0, 0);
+        cb.angularVelocity.set(0, 0, 0);
+
+        _world.addBody(cb);
+
+        // Put the body to sleep immediately so it doesn't
+        // bounce off the floor on the first frame
+        cb.sleep();
+
+        // Body wrapper
+        var bodyData = {
+            cannonBody:     cb,
+            mesh:           mesh,
+            isHeld:         false,
+            isSleeping:     true,
+            sleepTimer:     SLEEP_TIME,
+            // Partition data for player collision
+            partHalfW:      opts.halfW  || halfW * 0.8,
+            partHalfD:      opts.halfD  || halfD * 0.8,
+            partHeight:     opts.height || height * 0.9,
+            _partitionData: null,
+            _hasPartition:  true,  // starts with partition from Props.placeModel
+        };
+
+        _bodies.push(bodyData);
+
+        // Tag child meshes for raycasting
+        mesh.traverse(function (child) {
+            if (child.isMesh) {
+                child.userData._physicsBody = bodyData;
+            }
+        });
+
+        // Listen for collisions — impact sounds
+        cb.addEventListener('collide', function (e) {
+            var impact = e.contact.getImpactVelocityAlongNormal();
+            var now = performance.now() / 1000;
+            if (Math.abs(impact) > 1.5 && now - _lastImpactTime > IMPACT_COOLDOWN) {
+                _lastImpactTime = now;
+                _playImpactSound(Math.abs(impact) * 0.06);
+            }
+        });
+
+        console.log('[Physics] Body registered — compound L-shape, size: ' +
+            size.x.toFixed(2) + ' × ' + size.y.toFixed(2) + ' × ' + size.z.toFixed(2));
+
+        return bodyData;
     }
 
     // =========================================
@@ -150,11 +313,11 @@ var Physics = (function () {
         if (!document.pointerLockElement) return;
 
         _mouseDown = true;
-        _mouseDownTime = performance.now();
 
         if (_heldBody) return;
         if (_bodies.length === 0) return;
 
+        // Raycast to find clickable prop
         _raycaster.setFromCamera(_screenCenter, _camera);
 
         var rootMeshes = [];
@@ -166,30 +329,36 @@ var Physics = (function () {
         if (hits.length === 0) return;
         if (hits[0].distance > PICK_UP_RANGE) return;
 
-        // Walk parent chain to find body
-        var body = null;
+        // Walk parent chain to find body wrapper
+        var bodyData = null;
         var obj = hits[0].object;
         while (obj) {
             if (obj.userData && obj.userData._physicsBody) {
-                body = obj.userData._physicsBody;
+                bodyData = obj.userData._physicsBody;
                 break;
             }
             obj = obj.parent;
         }
-        if (!body) return;
+        if (!bodyData) return;
 
-        // Pick up
-        _heldBody = body;
-        body.isHeld = true;
-        body.isAwake = false;
-        body.isTipping = false;
-        body.velocity.set(0, 0, 0);
-        body.angularVel.set(0, 0, 0);
+        // === Pick up ===
+        _heldBody = bodyData;
+        bodyData.isHeld = true;
+        bodyData.isSleeping = false;
 
-        _removePartition(body);
+        var cb = bodyData.cannonBody;
 
-        _lastCarryPos = body.mesh.position.clone();
-        _prevCarryPos = body.mesh.position.clone();
+        // Switch to kinematic so cannon doesn't simulate it
+        cb.type = CANNON.Body.KINEMATIC;
+        cb.velocity.set(0, 0, 0);
+        cb.angularVelocity.set(0, 0, 0);
+        cb.updateMassProperties();
+
+        // Remove partition (player shouldn't collide with held object)
+        _removePartition(bodyData);
+
+        _lastCarryPos  = bodyData.mesh.position.clone();
+        _prevCarryPos  = bodyData.mesh.position.clone();
         _carryVelocity.set(0, 0, 0);
     }
 
@@ -199,9 +368,15 @@ var Physics = (function () {
 
         if (!_heldBody) return;
 
-        var body = _heldBody;
-        body.isHeld = false;
+        var bodyData = _heldBody;
         _heldBody = null;
+        bodyData.isHeld = false;
+
+        var cb = bodyData.cannonBody;
+
+        // Switch back to dynamic
+        cb.type = CANNON.Body.DYNAMIC;
+        cb.updateMassProperties();
 
         var carrySpeed = _carryVelocity.length();
         var fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
@@ -210,277 +385,38 @@ var Physics = (function () {
             // === THROW — player was actively flinging ===
             var throwVel = _carryVelocity.clone();
             throwVel.add(fwd.clone().multiplyScalar(THROW_FORCE * 0.3));
-            body.velocity.copy(throwVel);
 
-            // Strong tumble on throw
-            body.angularVel.set(
-                (Math.random() - 0.5) * 5,
+            cb.velocity.set(throwVel.x, throwVel.y, throwVel.z);
+
+            // Tumble spin on throw
+            cb.angularVelocity.set(
+                (Math.random() - 0.5) * 6,
                 (Math.random() - 0.5) * 3,
-                (Math.random() - 0.5) * 5
+                (Math.random() - 0.5) * 6
             );
-
         } else {
-            // === DROP — just release, normal gravity drop ===
-            body.velocity.set(
+            // === DROP — gentle release ===
+            cb.velocity.set(
                 _carryVelocity.x * 0.05,
-                -0.2,
+                -0.3,
                 _carryVelocity.z * 0.05
             );
 
-            // 90% upright, 10% tip over
-            if (Math.random() < 0.9) {
-                // Upright — no spin at all, clean drop
-                body.angularVel.set(0, 0, 0);
+            // Mostly upright drop, occasional tip
+            if (Math.random() < 0.85) {
+                cb.angularVelocity.set(0, 0, 0);
             } else {
-                // Will tip over onto a side
-                _startTip(body);
+                // Gentle tip
+                cb.angularVelocity.set(
+                    (Math.random() - 0.5) * 2.5,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 2.5
+                );
             }
         }
 
-        body.isAwake = true;
-    }
-
-    // =========================================
-    //  TIPPING SYSTEM
-    // =========================================
-
-    /**
-     * Start a natural-looking tip. Pick a random direction
-     * (forward, backward, left, right) and apply a gentle
-     * angular impulse that will cause the chair to fall that way.
-     */
-    function _startTip(body) {
-        // Chair is asymmetric — the back is tall, so it tips backward
-        // more naturally. Weight the random direction accordingly:
-        // 40% backward (onto chair back), 25% forward, 17.5% left, 17.5% right
-        var roll = Math.random();
-        var direction;
-        if (roll < 0.40) direction = 1;       // backward — most common
-        else if (roll < 0.65) direction = 0;   // forward
-        else if (roll < 0.825) direction = 2;  // left
-        else direction = 3;                    // right
-
-        var tipStrength = 1.5 + Math.random() * 0.8;
-
-        switch (direction) {
-            case 0: // tip forward
-                body.angularVel.x = -tipStrength;
-                break;
-            case 1: // tip backward (onto chair back)
-                body.angularVel.x = tipStrength;
-                break;
-            case 2: // tip left
-                body.angularVel.z = tipStrength;
-                break;
-            case 3: // tip right
-                body.angularVel.z = -tipStrength;
-                break;
-        }
-
-        body.angularVel.y = (Math.random() - 0.5) * 0.4;
-        body.isTipping = true;
-    }
-
-    /**
-     * Determine if the object should spring back upright or commit
-     * to falling over, based on its current tilt angle.
-     *
-     * Tipping threshold: ~25 degrees (0.44 rad). Below this,
-     * a restoring force pulls the object back to upright (like a
-     * chair rocking back onto all 4 legs). Above this, gravity
-     * commits the tilt into a full fall onto that side.
-     */
-    var TIP_THRESHOLD = 0.44;       // ~25 degrees — tipping point
-    var RESTORE_STRENGTH = 3.0;     // gentle spring back to upright
-    var COMMIT_STRENGTH = 1.5;      // gentle push to fall the rest of the way
-    var SETTLE_SPEED_THRESHOLD = 3.0; // only settle when moving slower than this
-
-    function _checkSettleOrientation(body) {
-        // Don't apply settle forces while the object is still moving fast
-        // This prevents jitter during active bouncing/sliding/tumbling
-        var speed = body.velocity.length();
-        var angSpeed = body.angularVel.length();
-        if (speed > SETTLE_SPEED_THRESHOLD || angSpeed > 4.0) return;
-
-        var rx = body.mesh.rotation.x % (Math.PI * 2);
-        var rz = body.mesh.rotation.z % (Math.PI * 2);
-
-        // Normalize to -PI to PI
-        if (rx > Math.PI) rx -= Math.PI * 2;
-        if (rx < -Math.PI) rx += Math.PI * 2;
-        if (rz > Math.PI) rz -= Math.PI * 2;
-        if (rz < -Math.PI) rz += Math.PI * 2;
-
-        // Find nearest stable rest angle for each axis
-        var nearestRestRx = Math.round(rx / (Math.PI / 2)) * (Math.PI / 2);
-        var nearestRestRz = Math.round(rz / (Math.PI / 2)) * (Math.PI / 2);
-
-        // How much to blend the settle force (stronger when slower)
-        var blend = 1.0 - Math.min(speed / SETTLE_SPEED_THRESHOLD, 1.0);
-
-        // --- X axis ---
-        if (Math.abs(rx) < 0.02) {
-            // Basically upright — gently damp
-            body.angularVel.x *= 0.9;
-        } else if (Math.abs(rx) < TIP_THRESHOLD && Math.abs(nearestRestRx) < 0.01) {
-            // Below tipping point — spring back to upright
-            body.angularVel.x += (0 - rx) * RESTORE_STRENGTH * blend;
-            body.angularVel.x *= 0.92;
-        } else {
-            // Past tipping point — commit to falling to nearest rest
-            body.angularVel.x += (nearestRestRx - rx) * COMMIT_STRENGTH * blend;
-        }
-
-        // --- Z axis ---
-        if (Math.abs(rz) < 0.02) {
-            body.angularVel.z *= 0.9;
-        } else if (Math.abs(rz) < TIP_THRESHOLD && Math.abs(nearestRestRz) < 0.01) {
-            body.angularVel.z += (0 - rz) * RESTORE_STRENGTH * blend;
-            body.angularVel.z *= 0.92;
-        } else {
-            body.angularVel.z += (nearestRestRz - rz) * COMMIT_STRENGTH * blend;
-        }
-    }
-
-    // =========================================
-    //  PARTITION MANAGEMENT
-    // =========================================
-
-    function _removePartition(body) {
-        if (!_colData || !_colData.partitions) return;
-        var pos = body.mesh.position;
-        var parts = _colData.partitions;
-        for (var i = parts.length - 1; i >= 0; i--) {
-            var p = parts[i];
-            if (Math.abs(p.x - pos.x) < 1.0 && Math.abs(p.z - pos.z) < 1.0) {
-                body._partitionData = parts.splice(i, 1)[0];
-                return;
-            }
-        }
-    }
-
-    function _addPartition(body) {
-        if (!_colData || !_colData.partitions) return;
-        var pos = body.mesh.position;
-        _colData.partitions.push({
-            x: pos.x,
-            z: pos.z,
-            halfW: body.partHalfW,
-            halfD: body.partHalfD,
-            height: body.partHeight,
-        });
-    }
-
-    // =========================================
-    //  COLLISION CHECKS
-    // =========================================
-
-    function _isWall(x, z) {
-        if (!_colData) return false;
-        var col = Math.floor(x / _colData.tileSize);
-        var row = Math.floor(z / _colData.tileSize);
-        if (row < 0 || row >= _colData.rows || col < 0 || col >= _colData.cols) return true;
-        return _colData.map[row][col] === 0;
-    }
-
-    /**
-     * Wall collision using the actual rotated bounding box.
-     * This means the chair back, when sideways, properly collides
-     * with walls instead of clipping through.
-     */
-    function _resolveWallCollisions(body) {
-        var pos = body.mesh.position;
-        var ts = _colData ? _colData.tileSize : 4.0;
-
-        // Get the ACTUAL world-space bounding box (accounts for rotation)
-        _tmpBox.setFromObject(body.mesh);
-        var hw = (_tmpBox.max.x - _tmpBox.min.x) / 2;
-        var hd = (_tmpBox.max.z - _tmpBox.min.z) / 2;
-
-        // Minimum collision radius so tiny rotated states still collide
-        if (hw < 0.1) hw = 0.1;
-        if (hd < 0.1) hd = 0.1;
-
-        var vel = body.velocity;
-        var angVel = body.angularVel;
-
-        // +X wall
-        if (_isWall(pos.x + hw, pos.z) ||
-            _isWall(pos.x + hw, pos.z + hd * 0.7) ||
-            _isWall(pos.x + hw, pos.z - hd * 0.7)) {
-            var col = Math.floor((pos.x + hw) / ts);
-            pos.x = col * ts - hw - 0.02;
-            var impX = Math.abs(vel.x);
-            vel.x = -Math.abs(vel.x) * WALL_BOUNCE;
-            // Transfer into spin and slide
-            angVel.y += vel.z * 0.08;
-            angVel.x += (Math.random() - 0.5) * impX * 0.1;
-            if (impX > 1.0) _playImpactSound(impX * 0.1);
-        }
-        // -X wall
-        if (_isWall(pos.x - hw, pos.z) ||
-            _isWall(pos.x - hw, pos.z + hd * 0.7) ||
-            _isWall(pos.x - hw, pos.z - hd * 0.7)) {
-            var col2 = Math.floor((pos.x - hw) / ts);
-            pos.x = (col2 + 1) * ts + hw + 0.02;
-            var impNX = Math.abs(vel.x);
-            vel.x = Math.abs(vel.x) * WALL_BOUNCE;
-            angVel.y += vel.z * 0.08;
-            angVel.x += (Math.random() - 0.5) * impNX * 0.1;
-            if (impNX > 1.0) _playImpactSound(impNX * 0.1);
-        }
-        // +Z wall
-        if (_isWall(pos.x, pos.z + hd) ||
-            _isWall(pos.x + hw * 0.7, pos.z + hd) ||
-            _isWall(pos.x - hw * 0.7, pos.z + hd)) {
-            var row = Math.floor((pos.z + hd) / ts);
-            pos.z = row * ts - hd - 0.02;
-            var impZ = Math.abs(vel.z);
-            vel.z = -Math.abs(vel.z) * WALL_BOUNCE;
-            angVel.y += vel.x * 0.08;
-            angVel.z += (Math.random() - 0.5) * impZ * 0.1;
-            if (impZ > 1.0) _playImpactSound(impZ * 0.1);
-        }
-        // -Z wall
-        if (_isWall(pos.x, pos.z - hd) ||
-            _isWall(pos.x + hw * 0.7, pos.z - hd) ||
-            _isWall(pos.x - hw * 0.7, pos.z - hd)) {
-            var row2 = Math.floor((pos.z - hd) / ts);
-            pos.z = (row2 + 1) * ts + hd + 0.02;
-            var impNZ = Math.abs(vel.z);
-            vel.z = Math.abs(vel.z) * WALL_BOUNCE;
-            angVel.y += vel.x * 0.08;
-            angVel.z += (Math.random() - 0.5) * impNZ * 0.1;
-            if (impNZ > 1.0) _playImpactSound(impNZ * 0.1);
-        }
-    }
-
-    /**
-     * Get the effective floor offset for a rotated object.
-     * When the object tips, its bounding box extends below the origin.
-     * Returns how high the origin should be above FLOOR_Y.
-     */
-    function _getFloorOffset(body) {
-        // Recompute bounding box with current rotation
-        _tmpBox.setFromObject(body.mesh);
-        // The lowest point of the model in world space
-        var lowestY = _tmpBox.min.y;
-        // The offset needed to keep the lowest point at FLOOR_Y
-        return body.mesh.position.y - lowestY;
-    }
-
-    /**
-     * Get the ceiling offset — use the object's largest dimension
-     * as a simple radius, not the inflated rotated AABB.
-     * This prevents the chair from hitting an "invisible ceiling"
-     * when tumbling, while still blocking it at the real ceiling.
-     */
-    function _getCeilingOffset(body) {
-        // Use half the largest dimension as a simple upward extent.
-        // This is tighter than the rotated AABB and feels much more
-        // natural — the chair can get close to the ceiling visually.
-        var maxDim = Math.max(body.boxWidth, body.boxHeight, body.boxDepth);
-        return maxDim * 0.45;
+        // Wake it up for simulation
+        cb.wakeUp();
     }
 
     // =========================================
@@ -491,113 +427,43 @@ var Physics = (function () {
         _updateCarry(dt);
         _updateCrosshair();
 
+        if (_world && dt > 0) {
+            // Step the cannon.js world
+            _world.step(FIXED_STEP, dt, MAX_SUB_STEPS);
+        }
+
+        // Sync Three.js meshes with cannon bodies & manage sleep/partitions
         for (var i = 0; i < _bodies.length; i++) {
-            var body = _bodies[i];
-            if (body.isHeld) continue;
-            if (!body.isAwake) continue;
+            var bd = _bodies[i];
+            if (bd.isHeld) continue;
 
-            // Substep physics for stability
-            var remaining = dt;
-            var steps = 0;
-            while (remaining > 0 && steps < MAX_SUBSTEPS) {
-                var stepDt = Math.min(remaining, SUBSTEP_DT);
-                _updateBody(body, stepDt);
-                remaining -= stepDt;
-                steps++;
-            }
-        }
-    }
+            var cb = bd.cannonBody;
 
-    function _updateBody(body, dt) {
-        var pos = body.mesh.position;
-        var vel = body.velocity;
-        var angVel = body.angularVel;
+            // Sync position and rotation from cannon → Three.js
+            bd.mesh.position.set(cb.position.x, cb.position.y, cb.position.z);
+            bd.mesh.quaternion.set(cb.quaternion.x, cb.quaternion.y, cb.quaternion.z, cb.quaternion.w);
 
-        // Gravity
-        vel.y += GRAVITY * dt;
+            // --- Sleep / partition management ---
+            var speed    = cb.velocity.norm();
+            var angSpeed = cb.angularVelocity.norm();
 
-        // Clamp max velocity
-        if (vel.y < -25) vel.y = -25;
-        if (vel.y > 25) vel.y = 25;
-
-        // Move
-        pos.x += vel.x * dt;
-        pos.y += vel.y * dt;
-        pos.z += vel.z * dt;
-
-        // Apply angular velocity
-        body.mesh.rotation.x += angVel.x * dt;
-        body.mesh.rotation.y += angVel.y * dt;
-        body.mesh.rotation.z += angVel.z * dt;
-
-        // --- Floor collision using actual model bounds ---
-        var floorOffset = _getFloorOffset(body);
-        var minY = FLOOR_Y + floorOffset;
-
-        if (pos.y < minY) {
-            pos.y = minY;
-
-            var impactSpeed = Math.abs(vel.y);
-            if (impactSpeed > BOUNCE_MIN) {
-                vel.y = -vel.y * BOUNCE_FACTOR;
-                if (vel.y > 8) vel.y = 8;
-                _playImpactSound(impactSpeed * 0.08);
-
-                // Small tumble from impact — not too much or it jitters
-                var tumbleAmount = Math.min(impactSpeed * 0.06, 0.8);
-                angVel.x += (Math.random() - 0.5) * tumbleAmount;
-                angVel.z += (Math.random() - 0.5) * tumbleAmount;
+            if (speed < SLEEP_VEL && angSpeed < SLEEP_ANG) {
+                bd.sleepTimer += dt;
+                if (bd.sleepTimer >= SLEEP_TIME && !bd.isSleeping) {
+                    bd.isSleeping = true;
+                    // Force fully still
+                    cb.velocity.set(0, 0, 0);
+                    cb.angularVelocity.set(0, 0, 0);
+                    cb.sleep();
+                    _addPartition(bd);
+                }
             } else {
-                vel.y = 0;
+                if (bd.isSleeping && !bd.isHeld) {
+                    bd.isSleeping = false;
+                    _removePartition(bd);
+                }
+                bd.sleepTimer = 0;
             }
-
-            // Ground friction
-            vel.x *= FRICTION;
-            vel.z *= FRICTION;
-            angVel.x *= ANGULAR_FRICTION;
-            angVel.y *= ANGULAR_FRICTION;
-            angVel.z *= ANGULAR_FRICTION;
-
-            // Help the object settle into a stable orientation
-            _checkSettleOrientation(body);
-        } else {
-            vel.x *= AIR_FRICTION;
-            vel.z *= AIR_FRICTION;
-        }
-
-        // --- Ceiling collision using actual model bounds ---
-        var ceilOffset = _getCeilingOffset(body);
-        var maxY = CEILING_Y - ceilOffset;
-        if (maxY < minY) maxY = minY;  // safety
-
-        if (pos.y > maxY) {
-            pos.y = maxY;
-            if (vel.y > 0) {
-                vel.y = -vel.y * 0.2;  // bounce down from ceiling
-                _playImpactSound(Math.abs(vel.y) * 0.05);
-            }
-        }
-
-        // --- Wall collisions ---
-        if (_colData) {
-            _resolveWallCollisions(body);
-        }
-
-        // --- Absolute floor safety ---
-        _tmpBox.setFromObject(body.mesh);
-        if (_tmpBox.min.y < FLOOR_Y - 0.01) {
-            pos.y += (FLOOR_Y - _tmpBox.min.y);
-        }
-
-        // --- Sleep check ---
-        var speed = vel.length();
-        var angSpeed = angVel.length();
-        if (speed < SLEEP_THRESHOLD && angSpeed < ANGULAR_SLEEP && pos.y <= minY + 0.05) {
-            vel.set(0, 0, 0);
-            angVel.set(0, 0, 0);
-            body.isAwake = false;
-            body.isTipping = false;
-            _addPartition(body);
         }
     }
 
@@ -608,33 +474,59 @@ var Physics = (function () {
     function _updateCarry(dt) {
         if (!_heldBody) return;
 
-        var body = _heldBody;
+        var bd = _heldBody;
+        var cb = bd.cannonBody;
+
+        // Target position: in front of camera
         var fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(_camera.quaternion);
-        var up = new THREE.Vector3(0, 1, 0);
+        var up  = new THREE.Vector3(0, 1, 0);
 
-        var targetPos = _camera.position.clone()
-            .add(fwd.clone().multiplyScalar(CARRY_DISTANCE))
-            .add(up.clone().multiplyScalar(CARRY_HEIGHT));
+        var targetX = _camera.position.x + fwd.x * CARRY_DISTANCE + up.x * CARRY_HEIGHT;
+        var targetY = _camera.position.y + fwd.y * CARRY_DISTANCE + up.y * CARRY_HEIGHT;
+        var targetZ = _camera.position.z + fwd.z * CARRY_DISTANCE + up.z * CARRY_HEIGHT;
 
-        // Keep within room bounds
-        if (targetPos.y < 0.3) targetPos.y = 0.3;
-        if (targetPos.y > CEILING_Y - 0.5) targetPos.y = CEILING_Y - 0.5;
+        // Clamp within room
+        if (targetY < 0.3) targetY = 0.3;
+        if (targetY > CEILING_Y - 0.5) targetY = CEILING_Y - 0.5;
 
-        _prevCarryPos = _lastCarryPos ? _lastCarryPos.clone() : targetPos.clone();
-        body.mesh.position.lerp(targetPos, Math.min(1.0, CARRY_LERP_SPEED * dt));
-        _lastCarryPos = body.mesh.position.clone();
+        _prevCarryPos = _lastCarryPos ? _lastCarryPos.clone() : new THREE.Vector3(targetX, targetY, targetZ);
+
+        // Lerp toward target
+        var lerp = Math.min(1.0, CARRY_LERP_SPEED * dt);
+        var newX = cb.position.x + (targetX - cb.position.x) * lerp;
+        var newY = cb.position.y + (targetY - cb.position.y) * lerp;
+        var newZ = cb.position.z + (targetZ - cb.position.z) * lerp;
+
+        cb.position.set(newX, newY, newZ);
+
+        // Also sync mesh immediately for visual
+        bd.mesh.position.set(newX, newY, newZ);
+
+        _lastCarryPos = new THREE.Vector3(newX, newY, newZ);
 
         // Track carry velocity for throw detection
         if (dt > 0) {
-            _carryVelocity.copy(_lastCarryPos).sub(_prevCarryPos).divideScalar(dt);
+            _carryVelocity.set(
+                (newX - _prevCarryPos.x) / dt,
+                (newY - _prevCarryPos.y) / dt,
+                (newZ - _prevCarryPos.z) / dt
+            );
         }
 
-        // Strongly level out rotation while held (return to fully upright)
-        body.mesh.rotation.x += (0 - body.mesh.rotation.x) * 0.25;
-        body.mesh.rotation.z += (0 - body.mesh.rotation.z) * 0.25;
-        // Snap to zero if very close (prevents lingering micro-tilt on release)
-        if (Math.abs(body.mesh.rotation.x) < 0.005) body.mesh.rotation.x = 0;
-        if (Math.abs(body.mesh.rotation.z) < 0.005) body.mesh.rotation.z = 0;
+        // Smoothly return to upright while held
+        // Use SLERP toward identity quaternion (upright)
+        var meshQ = bd.mesh.quaternion;
+
+        // Simple approach: lerp euler toward upright on X and Z, keep Y (facing)
+        var euler = new THREE.Euler().setFromQuaternion(meshQ, 'YXZ');
+        euler.x += (0 - euler.x) * 0.20;
+        euler.z += (0 - euler.z) * 0.20;
+        if (Math.abs(euler.x) < 0.005) euler.x = 0;
+        if (Math.abs(euler.z) < 0.005) euler.z = 0;
+        meshQ.setFromEuler(euler);
+
+        // Sync back to cannon
+        cb.quaternion.set(meshQ.x, meshQ.y, meshQ.z, meshQ.w);
     }
 
     // =========================================
@@ -676,11 +568,58 @@ var Physics = (function () {
     }
 
     // =========================================
+    //  PARTITION MANAGEMENT
+    // =========================================
+
+    /**
+     * Remove the collision partition for this prop
+     * so the player doesn't collide with it while it's moving / held.
+     */
+    function _removePartition(bd) {
+        if (!_colData || !_colData.partitions) return;
+        if (!bd._hasPartition) return;
+
+        var pos = bd.mesh.position;
+        var parts = _colData.partitions;
+
+        for (var i = parts.length - 1; i >= 0; i--) {
+            var p = parts[i];
+            if (Math.abs(p.x - pos.x) < 1.5 && Math.abs(p.z - pos.z) < 1.5) {
+                // Check it's roughly the right size (not a map partition)
+                if (Math.abs(p.height - bd.partHeight) < 0.5) {
+                    bd._partitionData = parts.splice(i, 1)[0];
+                    bd._hasPartition = false;
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Add a collision partition at the prop's current position
+     * so the player can stand on / collide with it.
+     */
+    function _addPartition(bd) {
+        if (!_colData || !_colData.partitions) return;
+        if (bd._hasPartition) return;
+
+        var pos = bd.mesh.position;
+        _colData.partitions.push({
+            x: pos.x,
+            z: pos.z,
+            halfW: bd.partHalfW,
+            halfD: bd.partHalfD,
+            height: bd.partHeight,
+        });
+        bd._hasPartition = true;
+    }
+
+    // =========================================
     //  IMPACT SOUND
     // =========================================
 
     function _playImpactSound(intensity) {
-        var ctx = AudioManager.getContext();
+        var ctx    = AudioManager.getContext();
         var master = AudioManager.getMasterGainNode();
         if (!ctx || !master) return;
 
@@ -704,20 +643,20 @@ var Physics = (function () {
 
         // Clatter noise
         var bufLen = Math.floor(ctx.sampleRate * 0.12);
-        var buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-        var data = buf.getChannelData(0);
+        var buf    = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+        var data   = buf.getChannelData(0);
         for (var i = 0; i < bufLen; i++) {
             data[i] = (Math.random() * 2 - 1) * 0.3 * Math.exp(-i / (bufLen * 0.2));
         }
-        var noise = ctx.createBufferSource();
-        noise.buffer = buf;
+        var noise     = ctx.createBufferSource();
+        noise.buffer  = buf;
         var noiseGain = ctx.createGain();
         noiseGain.gain.setValueAtTime(vol * 0.6, now);
         noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
         var bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
+        bp.type           = 'bandpass';
         bp.frequency.value = 400 + Math.random() * 300;
-        bp.Q.value = 2;
+        bp.Q.value         = 2;
         noise.connect(bp);
         bp.connect(noiseGain);
         noiseGain.connect(master);
@@ -732,9 +671,9 @@ var Physics = (function () {
     function isHolding() { return _heldBody !== null; }
 
     return {
-        init: init,
-        update: update,
-        addBody: addBody,
+        init:      init,
+        update:    update,
+        addBody:   addBody,
         isHolding: isHolding,
     };
 })();
