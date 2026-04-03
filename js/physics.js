@@ -19,11 +19,11 @@ var Physics = (function () {
     var GRAVITY          = -12.0;
     var FLOOR_Y          = 0.0;
     var CEILING_Y        = 3.0;     // matches WALL_HEIGHT in environment.js
-    var FRICTION         = 0.88;
-    var AIR_FRICTION     = 0.995;
-    var BOUNCE_FACTOR    = 0.25;
-    var BOUNCE_MIN       = 0.8;     // below this impact speed, no bounce
-    var ANGULAR_FRICTION = 0.88;
+    var FRICTION         = 0.92;     // more sliding on ground
+    var AIR_FRICTION     = 0.998;    // very little air drag
+    var BOUNCE_FACTOR    = 0.2;
+    var BOUNCE_MIN       = 1.0;     // below this impact speed, no bounce
+    var ANGULAR_FRICTION = 0.94;    // slower rotational damping = smoother tumble
     var SLEEP_THRESHOLD  = 0.08;
     var ANGULAR_SLEEP    = 0.05;
     var MAX_SUBSTEPS     = 4;       // physics substeps per frame to prevent tunneling
@@ -290,11 +290,18 @@ var Physics = (function () {
      * chair rocking back onto all 4 legs). Above this, gravity
      * commits the tilt into a full fall onto that side.
      */
-    var TIP_THRESHOLD = 0.44;  // ~25 degrees — tipping point
-    var RESTORE_STRENGTH = 6.0;  // spring force back to upright
-    var COMMIT_STRENGTH = 2.5;   // force pushing it the rest of the way over
+    var TIP_THRESHOLD = 0.44;       // ~25 degrees — tipping point
+    var RESTORE_STRENGTH = 3.0;     // gentle spring back to upright
+    var COMMIT_STRENGTH = 1.5;      // gentle push to fall the rest of the way
+    var SETTLE_SPEED_THRESHOLD = 3.0; // only settle when moving slower than this
 
     function _checkSettleOrientation(body) {
+        // Don't apply settle forces while the object is still moving fast
+        // This prevents jitter during active bouncing/sliding/tumbling
+        var speed = body.velocity.length();
+        var angSpeed = body.angularVel.length();
+        if (speed > SETTLE_SPEED_THRESHOLD || angSpeed > 4.0) return;
+
         var rx = body.mesh.rotation.x % (Math.PI * 2);
         var rz = body.mesh.rotation.z % (Math.PI * 2);
 
@@ -308,33 +315,30 @@ var Physics = (function () {
         var nearestRestRx = Math.round(rx / (Math.PI / 2)) * (Math.PI / 2);
         var nearestRestRz = Math.round(rz / (Math.PI / 2)) * (Math.PI / 2);
 
-        // Distance from upright (nearest multiple of PI on each axis)
-        var distFromUprightX = Math.abs(rx - Math.round(rx / Math.PI) * Math.PI);
-        var distFromUprightZ = Math.abs(rz - Math.round(rz / Math.PI) * Math.PI);
+        // How much to blend the settle force (stronger when slower)
+        var blend = 1.0 - Math.min(speed / SETTLE_SPEED_THRESHOLD, 1.0);
 
         // --- X axis ---
-        if (Math.abs(rx) < 0.01) {
-            // Basically upright on this axis — zero out any drift
-            body.angularVel.x *= 0.7;
+        if (Math.abs(rx) < 0.02) {
+            // Basically upright — gently damp
+            body.angularVel.x *= 0.9;
         } else if (Math.abs(rx) < TIP_THRESHOLD && Math.abs(nearestRestRx) < 0.01) {
-            // Below tipping point and nearest rest is upright — spring back
-            body.angularVel.x += (0 - rx) * RESTORE_STRENGTH;
-            body.angularVel.x *= 0.85;  // damping to prevent oscillation
+            // Below tipping point — spring back to upright
+            body.angularVel.x += (0 - rx) * RESTORE_STRENGTH * blend;
+            body.angularVel.x *= 0.92;
         } else {
             // Past tipping point — commit to falling to nearest rest
-            body.angularVel.x += (nearestRestRx - rx) * COMMIT_STRENGTH;
+            body.angularVel.x += (nearestRestRx - rx) * COMMIT_STRENGTH * blend;
         }
 
         // --- Z axis ---
-        if (Math.abs(rz) < 0.01) {
-            body.angularVel.z *= 0.7;
+        if (Math.abs(rz) < 0.02) {
+            body.angularVel.z *= 0.9;
         } else if (Math.abs(rz) < TIP_THRESHOLD && Math.abs(nearestRestRz) < 0.01) {
-            // Below tipping point — spring back upright
-            body.angularVel.z += (0 - rz) * RESTORE_STRENGTH;
-            body.angularVel.z *= 0.85;
+            body.angularVel.z += (0 - rz) * RESTORE_STRENGTH * blend;
+            body.angularVel.z *= 0.92;
         } else {
-            // Past tipping point — commit to falling
-            body.angularVel.z += (nearestRestRz - rz) * COMMIT_STRENGTH;
+            body.angularVel.z += (nearestRestRz - rz) * COMMIT_STRENGTH * blend;
         }
     }
 
@@ -381,37 +385,64 @@ var Physics = (function () {
 
     function _resolveWallCollisions(body) {
         var pos = body.mesh.position;
-        var hw = body.halfW * 0.5;  // use smaller collision for walls
-        var hd = body.halfD * 0.5;
+        // Use full half-widths so the chair doesn't clip into walls
+        var hw = body.halfW;
+        var hd = body.halfD;
         var ts = _colData ? _colData.tileSize : 4.0;
 
-        if (_isWall(pos.x + hw, pos.z)) {
+        // Check all four corners plus center edges for robust detection
+        var hitX = false, hitNegX = false, hitZ = false, hitNegZ = false;
+
+        // +X side (check two corners and center)
+        if (_isWall(pos.x + hw, pos.z) ||
+            _isWall(pos.x + hw, pos.z + hd * 0.5) ||
+            _isWall(pos.x + hw, pos.z - hd * 0.5)) {
             var col = Math.floor((pos.x + hw) / ts);
-            pos.x = col * ts - hw - 0.01;
+            pos.x = col * ts - hw - 0.02;
+            var impactX = Math.abs(body.velocity.x);
             body.velocity.x = -Math.abs(body.velocity.x) * WALL_BOUNCE;
-            body.angularVel.y += (Math.random() - 0.5) * 2;
-            _playImpactSound(Math.abs(body.velocity.x) * 0.15);
+            // Transfer some X velocity into slide along wall
+            body.velocity.z *= 0.95;
+            body.angularVel.y += body.velocity.z * 0.1;
+            if (impactX > 1.0) _playImpactSound(impactX * 0.1);
+            hitX = true;
         }
-        if (_isWall(pos.x - hw, pos.z)) {
+        // -X side
+        if (!hitX && (_isWall(pos.x - hw, pos.z) ||
+            _isWall(pos.x - hw, pos.z + hd * 0.5) ||
+            _isWall(pos.x - hw, pos.z - hd * 0.5))) {
             var col2 = Math.floor((pos.x - hw) / ts);
-            pos.x = (col2 + 1) * ts + hw + 0.01;
+            pos.x = (col2 + 1) * ts + hw + 0.02;
+            var impactNX = Math.abs(body.velocity.x);
             body.velocity.x = Math.abs(body.velocity.x) * WALL_BOUNCE;
-            body.angularVel.y += (Math.random() - 0.5) * 2;
-            _playImpactSound(Math.abs(body.velocity.x) * 0.15);
+            body.velocity.z *= 0.95;
+            body.angularVel.y += body.velocity.z * 0.1;
+            if (impactNX > 1.0) _playImpactSound(impactNX * 0.1);
         }
-        if (_isWall(pos.x, pos.z + hd)) {
+        // +Z side
+        if (_isWall(pos.x, pos.z + hd) ||
+            _isWall(pos.x + hw * 0.5, pos.z + hd) ||
+            _isWall(pos.x - hw * 0.5, pos.z + hd)) {
             var row = Math.floor((pos.z + hd) / ts);
-            pos.z = row * ts - hd - 0.01;
+            pos.z = row * ts - hd - 0.02;
+            var impactZ = Math.abs(body.velocity.z);
             body.velocity.z = -Math.abs(body.velocity.z) * WALL_BOUNCE;
-            body.angularVel.y += (Math.random() - 0.5) * 2;
-            _playImpactSound(Math.abs(body.velocity.z) * 0.15);
+            body.velocity.x *= 0.95;
+            body.angularVel.y += body.velocity.x * 0.1;
+            if (impactZ > 1.0) _playImpactSound(impactZ * 0.1);
+            hitZ = true;
         }
-        if (_isWall(pos.x, pos.z - hd)) {
+        // -Z side
+        if (!hitZ && (_isWall(pos.x, pos.z - hd) ||
+            _isWall(pos.x + hw * 0.5, pos.z - hd) ||
+            _isWall(pos.x - hw * 0.5, pos.z - hd))) {
             var row2 = Math.floor((pos.z - hd) / ts);
-            pos.z = (row2 + 1) * ts + hd + 0.01;
+            pos.z = (row2 + 1) * ts + hd + 0.02;
+            var impactNZ = Math.abs(body.velocity.z);
             body.velocity.z = Math.abs(body.velocity.z) * WALL_BOUNCE;
-            body.angularVel.y += (Math.random() - 0.5) * 2;
-            _playImpactSound(Math.abs(body.velocity.z) * 0.15);
+            body.velocity.x *= 0.95;
+            body.angularVel.y += body.velocity.x * 0.1;
+            if (impactNZ > 1.0) _playImpactSound(impactNZ * 0.1);
         }
     }
 
@@ -503,8 +534,8 @@ var Physics = (function () {
                 if (vel.y > 8) vel.y = 8;
                 _playImpactSound(impactSpeed * 0.08);
 
-                // Impact can cause a little extra tumble
-                var tumbleAmount = Math.min(impactSpeed * 0.15, 2.0);
+                // Small tumble from impact — not too much or it jitters
+                var tumbleAmount = Math.min(impactSpeed * 0.06, 0.8);
                 angVel.x += (Math.random() - 0.5) * tumbleAmount;
                 angVel.z += (Math.random() - 0.5) * tumbleAmount;
             } else {

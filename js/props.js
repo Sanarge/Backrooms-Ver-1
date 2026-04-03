@@ -114,7 +114,7 @@ const Props = (() => {
             position: { x: spawnPos.x + 2, y: 0, z: spawnPos.z - 1 },
             rotation: { x: 0, y: -0.5, z: 0 },
             scale: 0.75,
-            physics: { mass: 3.0, halfW: 0.2, halfD: 0.2, height: 0.5 },
+            physics: { mass: 3.0, halfW: 0.25, halfD: 0.28, height: 1.2 },
         });
     }
 
