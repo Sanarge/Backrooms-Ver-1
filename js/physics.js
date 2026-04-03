@@ -220,23 +220,19 @@ var Physics = (function () {
             );
 
         } else {
-            // === DROP — just release ===
+            // === DROP — just release, normal gravity drop ===
             body.velocity.set(
-                _carryVelocity.x * 0.1,
-                -0.3,
-                _carryVelocity.z * 0.1
+                _carryVelocity.x * 0.05,
+                -0.2,
+                _carryVelocity.z * 0.05
             );
 
-            // 70% chance: upright, 30% chance: slight tilt that leads to falling
-            if (Math.random() < 0.7) {
-                // Mostly upright — very gentle wobble
-                body.angularVel.set(
-                    (Math.random() - 0.5) * 0.2,
-                    (Math.random() - 0.5) * 0.3,
-                    (Math.random() - 0.5) * 0.2
-                );
+            // 90% upright, 10% tip over
+            if (Math.random() < 0.9) {
+                // Upright — no spin at all, clean drop
+                body.angularVel.set(0, 0, 0);
             } else {
-                // Tilt — will tip over onto a side
+                // Will tip over onto a side
                 _startTip(body);
             }
         }
@@ -286,9 +282,18 @@ var Physics = (function () {
     }
 
     /**
-     * After a throw with tumbling, check if the chair should
-     * settle on its side based on current rotation.
+     * Determine if the object should spring back upright or commit
+     * to falling over, based on its current tilt angle.
+     *
+     * Tipping threshold: ~25 degrees (0.44 rad). Below this,
+     * a restoring force pulls the object back to upright (like a
+     * chair rocking back onto all 4 legs). Above this, gravity
+     * commits the tilt into a full fall onto that side.
      */
+    var TIP_THRESHOLD = 0.44;  // ~25 degrees — tipping point
+    var RESTORE_STRENGTH = 6.0;  // spring force back to upright
+    var COMMIT_STRENGTH = 2.5;   // force pushing it the rest of the way over
+
     function _checkSettleOrientation(body) {
         var rx = body.mesh.rotation.x % (Math.PI * 2);
         var rz = body.mesh.rotation.z % (Math.PI * 2);
@@ -299,20 +304,37 @@ var Physics = (function () {
         if (rz > Math.PI) rz -= Math.PI * 2;
         if (rz < -Math.PI) rz += Math.PI * 2;
 
-        // Find the nearest stable orientation
-        // 0 = upright, ±PI/2 = on side, ±PI = upside down
-        var absRx = Math.abs(rx);
-        var absRz = Math.abs(rz);
+        // Find nearest stable rest angle for each axis
+        var nearestRestRx = Math.round(rx / (Math.PI / 2)) * (Math.PI / 2);
+        var nearestRestRz = Math.round(rz / (Math.PI / 2)) * (Math.PI / 2);
 
-        // Determine which axis has more tilt
-        if (absRx > 0.3 || absRz > 0.3) {
-            // Has significant tilt — settle toward nearest 90-degree rest
-            var targetRx = Math.round(rx / (Math.PI / 2)) * (Math.PI / 2);
-            var targetRz = Math.round(rz / (Math.PI / 2)) * (Math.PI / 2);
+        // Distance from upright (nearest multiple of PI on each axis)
+        var distFromUprightX = Math.abs(rx - Math.round(rx / Math.PI) * Math.PI);
+        var distFromUprightZ = Math.abs(rz - Math.round(rz / Math.PI) * Math.PI);
 
-            // Gentle angular velocity toward target
-            body.angularVel.x += (targetRx - rx) * 2.0;
-            body.angularVel.z += (targetRz - rz) * 2.0;
+        // --- X axis ---
+        if (Math.abs(rx) < 0.01) {
+            // Basically upright on this axis — zero out any drift
+            body.angularVel.x *= 0.7;
+        } else if (Math.abs(rx) < TIP_THRESHOLD && Math.abs(nearestRestRx) < 0.01) {
+            // Below tipping point and nearest rest is upright — spring back
+            body.angularVel.x += (0 - rx) * RESTORE_STRENGTH;
+            body.angularVel.x *= 0.85;  // damping to prevent oscillation
+        } else {
+            // Past tipping point — commit to falling to nearest rest
+            body.angularVel.x += (nearestRestRx - rx) * COMMIT_STRENGTH;
+        }
+
+        // --- Z axis ---
+        if (Math.abs(rz) < 0.01) {
+            body.angularVel.z *= 0.7;
+        } else if (Math.abs(rz) < TIP_THRESHOLD && Math.abs(nearestRestRz) < 0.01) {
+            // Below tipping point — spring back upright
+            body.angularVel.z += (0 - rz) * RESTORE_STRENGTH;
+            body.angularVel.z *= 0.85;
+        } else {
+            // Past tipping point — commit to falling
+            body.angularVel.z += (nearestRestRz - rz) * COMMIT_STRENGTH;
         }
     }
 
@@ -562,9 +584,12 @@ var Physics = (function () {
             _carryVelocity.copy(_lastCarryPos).sub(_prevCarryPos).divideScalar(dt);
         }
 
-        // Smoothly level out rotation while held (return to upright)
-        body.mesh.rotation.x += (0 - body.mesh.rotation.x) * 0.12;
-        body.mesh.rotation.z += (0 - body.mesh.rotation.z) * 0.12;
+        // Strongly level out rotation while held (return to fully upright)
+        body.mesh.rotation.x += (0 - body.mesh.rotation.x) * 0.25;
+        body.mesh.rotation.z += (0 - body.mesh.rotation.z) * 0.25;
+        // Snap to zero if very close (prevents lingering micro-tilt on release)
+        if (Math.abs(body.mesh.rotation.x) < 0.005) body.mesh.rotation.x = 0;
+        if (Math.abs(body.mesh.rotation.z) < 0.005) body.mesh.rotation.z = 0;
     }
 
     // =========================================
