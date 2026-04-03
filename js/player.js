@@ -347,57 +347,53 @@ const Player = (() => {
             AudioManager.fadeSpatialSourcesIn(INTRO_AUDIO_FADE);
         }
 
-        const floorY = -(EYE_HEIGHT - 0.15);
+        // === ONE CONTINUOUS SMOOTH ANIMATION ===
+        // No discrete phases — everything is driven by smooth global curves
+        // so there are no seams or snapping between sections.
 
-        // PHASE 1: IMPACT (0 – 0.8s)
-        if (T < INTRO_PHASE_IMPACT_END) {
-            const pt = T / INTRO_PHASE_IMPACT_END;
-            const bounce = Math.sin(pt * Math.PI) * 0.06;
-            introCameraY = floorY + bounce;
-            const shakeDecay = (1.0 - pt) * (1.0 - pt);
-            const shakeFreq = 35;
-            introCameraPitch = 0.35 + shakeDecay * 0.12 * Math.sin(T * shakeFreq);
-            introCameraRoll  = shakeDecay * 0.10 * Math.sin(T * shakeFreq * 1.3 + 1.0);
-            introCameraYaw   = shakeDecay * 0.06 * Math.sin(T * shakeFreq * 0.7 + 2.0);
+        const floorY = -(EYE_HEIGHT - 0.15);
+        const progress = Math.min(T / INTRO_DURATION, 1.0);
+
+        // --- Height: smooth rise from floor to standing ---
+        // Stays on floor for ~15% of the animation, then smoothly rises
+        const riseStart = 0.15;  // start rising at 15% through
+        let riseFraction = 0;
+        if (progress > riseStart) {
+            const riseProgress = (progress - riseStart) / (1.0 - riseStart);
+            // Smooth S-curve (slow start, slow end)
+            riseFraction = riseProgress * riseProgress * (3.0 - 2.0 * riseProgress);
         }
-        // PHASE 2: DAZED (0.8 – 2.5s)
-        else if (T < INTRO_PHASE_DAZED_END) {
-            const pt = (T - INTRO_PHASE_IMPACT_END) / (INTRO_PHASE_DAZED_END - INTRO_PHASE_IMPACT_END);
-            const riseEase = pt * pt * (3.0 - 2.0 * pt);
-            const riseTarget = floorY * 0.6;
-            introCameraY = floorY + (riseTarget - floorY) * riseEase;
-            const wobbleDecay = 1.0 - pt * 0.5;
-            introCameraPitch = 0.35 * (1.0 - riseEase * 0.85)
-                + wobbleDecay * 0.06 * Math.sin(T * 4.5)
-                + wobbleDecay * 0.03 * Math.sin(T * 7.2 + 1.5);
-            introCameraRoll = (1.0 - pt * 0.6) * 0.08 * Math.sin(T * 2.8)
-                + 0.04 * Math.sin(T * 5.1 + 0.8);
-            introCameraYaw = 0.05 * Math.sin(T * 1.8 + 0.5)
-                + 0.025 * Math.sin(T * 3.3 + 2.0);
-        }
-        // PHASE 3: RISING (2.5 – 4.5s)
-        else if (T < INTRO_PHASE_RISING_END) {
-            const pt = (T - INTRO_PHASE_DAZED_END) / (INTRO_PHASE_RISING_END - INTRO_PHASE_DAZED_END);
-            const riseEase = pt * pt * (3.0 - 2.0 * pt);
-            const startY = floorY * 0.6;
-            introCameraY = startY * (1.0 - riseEase);
-            const wobble = (1.0 - pt) * 0.03;
-            introCameraPitch = (1.0 - riseEase) * 0.06 + wobble * Math.sin(T * 3.8);
-            introCameraRoll = (1.0 - riseEase) * 0.04 * Math.sin(T * 2.2)
-                + (1.0 - pt) * 0.015 * Math.sin(T * 5.5 + 1.0);
-            introCameraYaw = (1.0 - pt * pt) * 0.07 * Math.sin(T * 1.2 + 3.0)
-                + 0.03 * Math.sin(T * 2.5) * (1.0 - riseEase);
-        }
-        // PHASE 4: SETTLE (4.5 – 5.5s)
-        else {
-            const pt = (T - INTRO_PHASE_RISING_END) / (INTRO_DURATION - INTRO_PHASE_RISING_END);
-            const fadeOut = Math.max(0, 1.0 - pt);
-            const smoothFade = fadeOut * fadeOut;
-            introCameraY = 0;
-            introCameraPitch = smoothFade * 0.012 * Math.sin(T * 3.0);
-            introCameraRoll  = smoothFade * 0.008 * Math.sin(T * 2.3 + 0.5);
-            introCameraYaw   = smoothFade * 0.010 * Math.sin(T * 1.6 + 1.0);
-        }
+        // Small impact bounce right at the start (first ~0.8s)
+        const bounceAmount = Math.max(0, 1.0 - T / 0.8);
+        const bounce = bounceAmount * Math.sin(T * 4.0) * 0.04;
+        introCameraY = floorY * (1.0 - riseFraction) + bounce;
+
+        // --- Global wobble envelope: strong at start, fades to zero ---
+        // One continuous decay — no phase resets
+        const wobbleEnvelope = Math.max(0, 1.0 - progress * progress);
+
+        // --- Impact shake: intense at start, dies out quickly ---
+        const shakeEnvelope = Math.exp(-T * 4.0);  // fast exponential decay
+        const shakeFreq = 30;
+
+        // --- Pitch: face-down on impact → level when standing ---
+        // Base pitch (looking down at floor) fades out as we rise
+        const basePitch = 0.35 * (1.0 - riseFraction);
+        // Impact shake on pitch
+        const shakePitch = shakeEnvelope * 0.12 * Math.sin(T * shakeFreq);
+        // Gentle continuous wobble (dazed swaying)
+        const wobblePitch = wobbleEnvelope * 0.04 * Math.sin(T * 3.1 + 0.5);
+        introCameraPitch = basePitch + shakePitch + wobblePitch;
+
+        // --- Roll: impact jolt → dazed swaying → settles ---
+        const shakeRoll = shakeEnvelope * 0.10 * Math.sin(T * shakeFreq * 1.3 + 1.0);
+        const wobbleRoll = wobbleEnvelope * 0.05 * Math.sin(T * 2.1 + 0.8);
+        introCameraRoll = shakeRoll + wobbleRoll;
+
+        // --- Yaw: slight disoriented head turns → settles ---
+        const shakeYaw = shakeEnvelope * 0.06 * Math.sin(T * shakeFreq * 0.7 + 2.0);
+        const wobbleYaw = wobbleEnvelope * 0.04 * Math.sin(T * 1.5 + 1.2);
+        introCameraYaw = shakeYaw + wobbleYaw;
 
         // Apply camera
         camera.position.set(position.x, position.y + introCameraY, position.z);
@@ -670,7 +666,7 @@ const Player = (() => {
             const curRecBobStep = Math.floor(recoveryBobTimer / Math.PI);
             if (curRecBobStep !== prevRecoveryBobStep) {
                 // Quieter if just standing up in place, louder if walking during recovery
-                const stepVol = wantsMove ? bobIntensity * 1.2 : bobIntensity * 0.9;
+                const stepVol = wantsMove ? bobIntensity * 1.8 : bobIntensity * 1.4;
                 AudioManager.playFootstep(false, stepVol, false);
                 prevRecoveryBobStep = curRecBobStep;
             }
