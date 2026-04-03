@@ -24,8 +24,8 @@ const Atmosphere = (() => {
     // =========================================
 
     // ── Distant Sounds ──
-    const DISTANT_SOUND_MIN_GAP   = 8;     // seconds — minimum quiet between events
-    const DISTANT_SOUND_MEAN_GAP  = 25;    // average gap (exponential distribution)
+    const DISTANT_SOUND_MIN_GAP   = 3;     // seconds — minimum quiet between events
+    const DISTANT_SOUND_MEAN_GAP  = 10;    // average gap (exponential distribution)
     const DISTANT_SOUND_MIN_DIST  = 10;    // min distance from player (world units)
     const DISTANT_SOUND_MAX_DIST  = 22;    // max distance
     const DISTANT_SOUND_VOLUME    = 0.45;  // clearly audible but still "distant"
@@ -41,8 +41,8 @@ const Atmosphere = (() => {
     const STATIC_DURATION         = 0.06;  // shorter flash
 
     // ── The Watcher ──
-    const WATCHER_MIN_GAP         = 20;
-    const WATCHER_MEAN_GAP        = 45;
+    const WATCHER_MIN_GAP         = 8;
+    const WATCHER_MEAN_GAP        = 20;
     const WATCHER_BEHIND_SOUND_VOL = 0.25;  // audible enough to make you turn around
     const WATCHER_GRAIN_SPIKE     = 0.08;   // subtler grain boost during an event
     const WATCHER_GRAIN_SPIKE_DUR = 1.5;    // seconds
