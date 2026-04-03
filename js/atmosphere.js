@@ -342,7 +342,7 @@ const Atmosphere = (() => {
             const src = _audioCtx.createBufferSource();
             src.buffer = buf;
             const g = _audioCtx.createGain();
-            g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * (0.7 + Math.random() * 0.6), t);
+            g.gain.setValueAtTime(DISTANT_SOUND_VOLUME * (2.5 + Math.random() * 1.5), t);
             g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
             const lp = _audioCtx.createBiquadFilter();
             lp.type = 'lowpass';
