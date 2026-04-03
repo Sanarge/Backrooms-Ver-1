@@ -653,23 +653,26 @@ const Player = (() => {
 
         if (tripState === 'recovering' && impactStunTimer <= 0) {
             const wantsMove = keys.forward || keys.backward || keys.left || keys.right;
+            const recoveryProgress = Math.min(tripTimer / tripRecoveryDuration, 1.0);
+            const bobIntensity = 0.3 + recoveryProgress * 0.7;  // starts at 0.3, ramps to 1.0
+            const bobSpeed = 6.0 + recoveryProgress * 4.0;
+
+            // Always advance the bob timer during recovery — the character is getting up
+            const dt_cam = 1 / 60;  // approximate frame dt for camera updates
+            recoveryBobTimer += dt_cam * bobSpeed;
+
             if (wantsMove) {
-                const recoveryProgress = Math.min(tripTimer / tripRecoveryDuration, 1.0);
-                const bobIntensity = recoveryProgress * recoveryProgress;
-                const bobSpeed = 6.0 + recoveryProgress * 4.0;
-                recoveryBobTimer += (1 / 120) * bobSpeed;
                 microBobY = Math.sin(recoveryBobTimer * 2) * 0.03 * bobIntensity;
                 microBobRoll = Math.sin(recoveryBobTimer) * 0.006 * bobIntensity;
+            }
 
-                // Footstep sounds synced to recovery bob cycle
-                const curRecBobStep = Math.floor(recoveryBobTimer / Math.PI);
-                if (curRecBobStep !== prevRecoveryBobStep && bobIntensity > 0.1) {
-                    AudioManager.playFootstep(false, bobIntensity * 0.7, false);
-                    prevRecoveryBobStep = curRecBobStep;
-                }
-            } else {
-                recoveryBobTimer *= 0.92;
-                prevRecoveryBobStep = Math.floor(recoveryBobTimer / Math.PI);
+            // Footstep sounds synced to recovery bob — plays whether moving or standing up
+            const curRecBobStep = Math.floor(recoveryBobTimer / Math.PI);
+            if (curRecBobStep !== prevRecoveryBobStep) {
+                // Quieter if just standing up in place, louder if walking during recovery
+                const stepVol = wantsMove ? bobIntensity * 0.8 : bobIntensity * 0.5;
+                AudioManager.playFootstep(false, stepVol, false);
+                prevRecoveryBobStep = curRecBobStep;
             }
         } else if (tripState === 'stumbling') {
             // Staggering footsteps during stumble — use the stumble step phase
