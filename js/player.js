@@ -655,7 +655,7 @@ const Player = (() => {
             const wantsMove = keys.forward || keys.backward || keys.left || keys.right;
             const recoveryProgress = Math.min(tripTimer / tripRecoveryDuration, 1.0);
             const bobIntensity = 0.3 + recoveryProgress * 0.7;  // starts at 0.3, ramps to 1.0
-            const bobSpeed = 6.0 + recoveryProgress * 4.0;
+            const bobSpeed = 2.5 + recoveryProgress * 2.5;  // slower = fewer steps when getting up
 
             // Always advance the bob timer during recovery — the character is getting up
             const dt_cam = 1 / 60;  // approximate frame dt for camera updates
@@ -670,7 +670,7 @@ const Player = (() => {
             const curRecBobStep = Math.floor(recoveryBobTimer / Math.PI);
             if (curRecBobStep !== prevRecoveryBobStep) {
                 // Quieter if just standing up in place, louder if walking during recovery
-                const stepVol = wantsMove ? bobIntensity * 0.8 : bobIntensity * 0.5;
+                const stepVol = wantsMove ? bobIntensity * 1.2 : bobIntensity * 0.9;
                 AudioManager.playFootstep(false, stepVol, false);
                 prevRecoveryBobStep = curRecBobStep;
             }
