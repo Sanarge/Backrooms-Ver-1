@@ -81,9 +81,40 @@ var MapEditor = (function() {
         _initMaterials();
         _initGeometries();
         _initControls();
-        _showLevelMenu();
+        // Pre-seed Level 0 from static JSON if not already in localStorage
+        _seedDefaultLevels(function() {
+            _showLevelMenu();
+        });
         _animate();
     };
+
+    /**
+     * On first load, fetch level0.json and save it to localStorage
+     * so it always shows as an editable level in the menu.
+     */
+    function _seedDefaultLevels(callback) {
+        var key = 'backrooms_level_0';
+        if (localStorage.getItem(key)) {
+            // Already seeded
+            if (callback) callback();
+            return;
+        }
+        // Fetch the static level0.json and store it
+        fetch('assets/levels/level0.json')
+            .then(function(r) {
+                if (!r.ok) throw new Error('Not found');
+                return r.json();
+            })
+            .then(function(data) {
+                localStorage.setItem(key, JSON.stringify(data));
+                console.log('[Editor] Seeded Level 0 from level0.json');
+                if (callback) callback();
+            })
+            .catch(function() {
+                console.log('[Editor] No default level0.json found');
+                if (callback) callback();
+            });
+    }
 
     // ===== DOM INITIALIZATION =====
     function _initDOM() {
