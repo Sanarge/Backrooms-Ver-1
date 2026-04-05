@@ -72,6 +72,11 @@ var MapEditor = (function() {
     var _dragStart = new THREE.Vector2();
     var _panStart = new THREE.Vector3();
 
+    // Undo / Redo history
+    var _undoStack = [];   // array of JSON strings (level snapshots)
+    var _redoStack = [];
+    var MAX_UNDO = 80;
+
     // ===== PUBLIC API =====
     var api = {};
 
@@ -899,9 +904,51 @@ var MapEditor = (function() {
         _scene.add(_hoverMesh);
     }
 
+    // ===== UNDO / REDO =====
+
+    /** Take a snapshot of the current level state for undo. */
+    function _pushUndo() {
+        if (!_currentLevel) return;
+        _undoStack.push(JSON.stringify(_currentLevel));
+        if (_undoStack.length > MAX_UNDO) _undoStack.shift();
+        // Any new edit clears redo history
+        _redoStack.length = 0;
+    }
+
+    function _undo() {
+        if (_undoStack.length === 0) {
+            _showStatus('Nothing to undo', 1000);
+            return;
+        }
+        // Save current state to redo stack
+        _redoStack.push(JSON.stringify(_currentLevel));
+        // Restore previous state
+        _currentLevel = JSON.parse(_undoStack.pop());
+        _levelNumber = _currentLevel.level;
+        _rebuildScene();
+        _showStatus('Undo (' + _undoStack.length + ' left)', 1000);
+    }
+
+    function _redo() {
+        if (_redoStack.length === 0) {
+            _showStatus('Nothing to redo', 1000);
+            return;
+        }
+        // Save current state to undo stack
+        _undoStack.push(JSON.stringify(_currentLevel));
+        // Restore next state
+        _currentLevel = JSON.parse(_redoStack.pop());
+        _levelNumber = _currentLevel.level;
+        _rebuildScene();
+        _showStatus('Redo (' + _redoStack.length + ' left)', 1000);
+    }
+
     // ===== EDITING TOOLS =====
     function _paintCell(row, col) {
         if (row < 0 || row >= _currentLevel.rows || col < 0 || col >= _currentLevel.cols) return;
+
+        // NOTE: undo snapshot is pushed in _onMouseDown (once per drag),
+        // not here (which fires per-cell during drag).
 
         switch (_currentTool) {
             case 'wall':
@@ -1128,6 +1175,9 @@ var MapEditor = (function() {
         if (e.button === 0) {  // left click
             _mouseDown = true;
             _isPainting = true;
+            // Snapshot the entire level ONCE at the start of a drag/click
+            // so the whole paint stroke is one undo step
+            _pushUndo();
             if (_currentHoverCell) {
                 _lastPaintedCell = _currentHoverCell.row + '_' + _currentHoverCell.col;
                 _paintCell(_currentHoverCell.row, _currentHoverCell.col);
@@ -1163,6 +1213,25 @@ var MapEditor = (function() {
 
     function _onKeyDown(e) {
         _keysPressed[e.key] = true;
+
+        // Undo: Ctrl+Z or Cmd+Z
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+            e.preventDefault();
+            _undo();
+            return;
+        }
+
+        // Redo: Ctrl+Shift+Z or Cmd+Shift+Z  (also Ctrl+Y)
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault();
+            _redo();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+            e.preventDefault();
+            _redo();
+            return;
+        }
 
         if (e.key === 'Tab') {
             e.preventDefault();
