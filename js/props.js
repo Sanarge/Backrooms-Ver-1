@@ -105,7 +105,7 @@ const Props = (() => {
     }
 
     /**
-     * Place props near the spawn position.
+     * Place props near the spawn position (legacy fallback).
      * @param {THREE.Vector3} spawnPos
      */
     function placeSpawnProps(spawnPos) {
@@ -118,12 +118,41 @@ const Props = (() => {
         });
     }
 
+    /**
+     * Place props from level JSON data.
+     * Props have offsets relative to the spawn position.
+     * @param {Array} propsArray — from level JSON
+     * @param {THREE.Vector3} spawnPos
+     */
+    function placeFromLevelData(propsArray, spawnPos) {
+        if (!propsArray || propsArray.length === 0) {
+            // No props defined — use legacy placement
+            placeSpawnProps(spawnPos);
+            return;
+        }
+        for (var i = 0; i < propsArray.length; i++) {
+            var p = propsArray[i];
+            var url = p.url || ('assets/' + p.type + '.glb');
+            placeModel(url, {
+                position: {
+                    x: spawnPos.x + (p.offsetX || 0),
+                    y: p.offsetY || 0,
+                    z: spawnPos.z + (p.offsetZ || 0),
+                },
+                rotation: { x: 0, y: p.rotY || 0, z: 0 },
+                scale: p.scale || 1.0,
+                physics: p.physics || null,
+            });
+        }
+    }
+
     function getModels() { return _loadedModels; }
 
     return {
         init,
         placeModel,
         placeSpawnProps,
+        placeFromLevelData,
         getModels,
     };
 })();

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backrooms Map Editor</title>
+    <link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+
+    <!-- Main Menu Overlay (JS populates level-list) -->
+    <div id="editor-menu">
+        <div class="editor-menu-inner">
+            <h1 class="editor-title">BACKROOMS<br><span>MAP EDITOR</span></h1>
+            <div id="level-list"></div>
+            <div class="editor-menu-footer">
+                <button id="import-btn" class="editor-footer-btn">Import JSON</button>
+                <a href="index.html" class="editor-footer-btn" style="text-decoration:none; text-align:center; display:inline-block;">Back to Game</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D Canvas (full screen behind overlays) -->
+    <canvas id="editor-canvas"></canvas>
+
+    <!-- Help Overlay (toggled with H key) -->
+    <div id="help-overlay" style="display:none;">
+        <div class="help-content">
+            <h2>Keyboard Shortcuts</h2>
+            <p><strong>Arrow Keys</strong> — Rotate camera (Orbit mode)</p>
+            <p><strong>WASD</strong> — Move camera (Free Fly mode)</p>
+            <p><strong>Q / E</strong> — Move up / down (Free Fly)</p>
+            <p><strong>Scroll Wheel</strong> — Zoom in/out</p>
+            <p><strong>Middle Mouse Drag</strong> — Pan camera</p>
+            <p><strong>Tab</strong> — Toggle camera mode</p>
+            <p><strong>H</strong> — Toggle this help</p>
+            <hr style="border-color:#444; margin:12px 0;">
+            <h2>Tools</h2>
+            <p><strong>Wall</strong> — Click/drag to place wall blocks</p>
+            <p><strong>Open</strong> — Click/drag to clear walls (create open space)</p>
+            <p><strong>Light</strong> — Click to toggle ceiling lights</p>
+            <p><strong>Spawn</strong> — Click to set player spawn point</p>
+            <p><strong>Chair</strong> — Click to place a chair prop</p>
+            <p><strong>Eraser</strong> — Click to remove walls, lights, props</p>
+            <div style="text-align:center; margin-top:16px;">
+                <button id="help-close" style="padding:8px 24px; background:#e94560; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:14px;">Close (H)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input for JSON import -->
+    <input type="file" id="import-file" accept=".json" style="display:none;">
+
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+    <!-- Editor Logic -->
+    <script src="js/editor.js"></script>
+</body>
+</html>

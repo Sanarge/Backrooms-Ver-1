@@ -1,6 +1,6 @@
 /* ========================================
    Lighting Engine  (V2 — "Alive" Lights)
-   ════════════════════════════════════════════════════════
+   ─────────────────────────────────────────
    Every ceiling panel is a unique light with
    its own personality: breathing rhythm,
    colour warmth, and hum-stability class.
@@ -199,6 +199,29 @@ const LightingEngine = (() => {
             }
         }
 
+        _allocDistArrays();
+    }
+
+    /**
+     * Place lights at specific cell positions from level JSON data.
+     * @param {Array<{row,col}>} lightCells
+     * @param {number} tileSize
+     * @param {number} wallHeight
+     * @param {THREE.Texture} panelTex
+     * @param {THREE.Texture} glowTex
+     */
+    function placeLightsFromData(lightCells, tileSize, wallHeight, panelTex, glowTex) {
+        for (let i = 0; i < lightCells.length; i++) {
+            const cell = lightCells[i];
+            const rawX = cell.col * tileSize + tileSize / 2;
+            const rawZ = cell.row * tileSize + tileSize / 2;
+            const snapped = snapToCeilingTile(rawX, rawZ);
+            _addLightPanel(panelTex, glowTex, snapped.x, wallHeight - 0.02, snapped.z);
+        }
+        _allocDistArrays();
+    }
+
+    function _allocDistArrays() {
         // Pre-allocate distance arrays
         _distArray = new Array(lightObjects.length);
         for (let i = 0; i < lightObjects.length; i++) {
@@ -671,6 +694,7 @@ const LightingEngine = (() => {
     return {
         init,
         placeLights,
+        placeLightsFromData,
         addAmbientFog,
         createShadowPool,
         updateBreathing,

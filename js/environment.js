@@ -1,16 +1,22 @@
 /* ========================================
    Environment Builder
-   Constructs the Backrooms Level 0 geometry:
+   Constructs the Backrooms geometry:
    floor, ceiling, walls, and partitions.
+   Supports loading from level JSON data.
    Light placement delegated to LightingEngine.
    ======================================== */
 
 const Environment = (() => {
-    const WALL_HEIGHT = 3.0;
-    const TILE_SIZE = 4.0;
 
-    // Layout map: 1 = open space, 0 = wall
-    const MAP = [
+    // =========================================
+    //  LEVEL DATA  (set by setLevelData or defaults)
+    // =========================================
+
+    let WALL_HEIGHT = 3.0;
+    let TILE_SIZE   = 4.0;
+
+    // Default Level 0 map (fallback if no JSON loaded)
+    const DEFAULT_MAP = [
         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
         [0,1,1,1,1,0,1,1,1,0,1,1,1,1,0],
         [0,1,1,1,1,0,1,1,1,0,1,1,1,1,0],
@@ -28,8 +34,10 @@ const Environment = (() => {
         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     ];
 
-    const mapRows = MAP.length;
-    const mapCols = MAP[0].length;
+    let _currentMap  = DEFAULT_MAP;
+    let _mapRows     = DEFAULT_MAP.length;
+    let _mapCols     = DEFAULT_MAP[0].length;
+    let _levelData   = null;   // full JSON level data (if loaded)
 
     /** Half-height partition data for collision */
     const partitions = [];
@@ -43,6 +51,31 @@ const Environment = (() => {
 
     // Wall texture repeat — one image per this many world units
     const WALL_TEX_REPEAT = 3.0;
+
+    // =========================================
+    //  LEVEL DATA SETTER
+    // =========================================
+
+    /**
+     * Set the current level data from a loaded JSON object.
+     * Call this BEFORE build().
+     * @param {object} levelData — parsed level JSON
+     */
+    function setLevelData(levelData) {
+        _levelData   = levelData;
+        _currentMap  = levelData.map;
+        _mapRows     = levelData.rows || levelData.map.length;
+        _mapCols     = levelData.cols || levelData.map[0].length;
+        TILE_SIZE    = levelData.tileSize   || 4.0;
+        WALL_HEIGHT  = levelData.wallHeight || 3.0;
+    }
+
+    /**
+     * Get the current level data object (if set).
+     */
+    function getLevelData() {
+        return _levelData;
+    }
 
     // =========================================
     //  BUILD
@@ -64,7 +97,7 @@ const Environment = (() => {
         buildPartitions(scene, textures.wall);
 
         return {
-            map: MAP,
+            map: _currentMap,
             tileSize: TILE_SIZE,
             wallHeight: WALL_HEIGHT,
         };
@@ -75,8 +108,8 @@ const Environment = (() => {
     // =========================================
 
     function buildFloor(scene, tex) {
-        const w = mapCols * TILE_SIZE;
-        const d = mapRows * TILE_SIZE;
+        const w = _mapCols * TILE_SIZE;
+        const d = _mapRows * TILE_SIZE;
         const geo = new THREE.PlaneGeometry(w, d);
         const mat = new THREE.MeshStandardMaterial({
             map: tex,
@@ -97,8 +130,8 @@ const Environment = (() => {
     // =========================================
 
     function buildCeiling(scene, tex) {
-        const w = mapCols * TILE_SIZE;
-        const d = mapRows * TILE_SIZE;
+        const w = _mapCols * TILE_SIZE;
+        const d = _mapRows * TILE_SIZE;
         const geo = new THREE.PlaneGeometry(w, d);
         const mat = new THREE.MeshStandardMaterial({
             map: tex, roughness: 0.85, metalness: 0.0,
@@ -173,14 +206,18 @@ const Environment = (() => {
             );
         };
 
-        const wallCount = MAP.flat().filter(v => v === 0).length;
+        let wallCount = 0;
+        for (let r = 0; r < _mapRows; r++)
+            for (let c = 0; c < _mapCols; c++)
+                if (_currentMap[r][c] === 0) wallCount++;
+
         const inst = new THREE.InstancedMesh(wallGeo, wallMat, wallCount);
 
         const dummy = new THREE.Object3D();
         let idx = 0;
-        for (let row = 0; row < mapRows; row++) {
-            for (let col = 0; col < mapCols; col++) {
-                if (MAP[row][col] === 0) {
+        for (let row = 0; row < _mapRows; row++) {
+            for (let col = 0; col < _mapCols; col++) {
+                if (_currentMap[row][col] === 0) {
                     dummy.position.set(
                         col * TILE_SIZE + TILE_SIZE / 2,
                         WALL_HEIGHT / 2,
@@ -240,19 +277,19 @@ const Environment = (() => {
         };
 
         // Collect candidates
-        const centerRow = Math.floor(mapRows / 2);
-        const centerCol = Math.floor(mapCols / 2);
+        const centerRow = Math.floor(_mapRows / 2);
+        const centerCol = Math.floor(_mapCols / 2);
         const candidates = [];
 
-        for (let row = 1; row < mapRows - 1; row++) {
-            for (let col = 1; col < mapCols - 1; col++) {
-                if (MAP[row][col] !== 1) continue;
+        for (let row = 1; row < _mapRows - 1; row++) {
+            for (let col = 1; col < _mapCols - 1; col++) {
+                if (_currentMap[row][col] !== 1) continue;
                 if (Math.abs(row - centerRow) <= 1 && Math.abs(col - centerCol) <= 1) continue;
                 let openNeighbors = 0;
-                if (MAP[row-1][col] === 1) openNeighbors++;
-                if (MAP[row+1][col] === 1) openNeighbors++;
-                if (MAP[row][col-1] === 1) openNeighbors++;
-                if (MAP[row][col+1] === 1) openNeighbors++;
+                if (_currentMap[row-1][col] === 1) openNeighbors++;
+                if (_currentMap[row+1][col] === 1) openNeighbors++;
+                if (_currentMap[row][col-1] === 1) openNeighbors++;
+                if (_currentMap[row][col+1] === 1) openNeighbors++;
                 if (openNeighbors >= 3) candidates.push({ row, col });
             }
         }
@@ -318,25 +355,40 @@ const Environment = (() => {
 
     function getCollisionData() {
         return {
-            map: MAP,
+            map: _currentMap,
             tileSize: TILE_SIZE,
-            rows: mapRows,
-            cols: mapCols,
+            rows: _mapRows,
+            cols: _mapCols,
             wallHeight: WALL_HEIGHT,
             partitions,
         };
     }
 
+    /**
+     * Get spawn position. If level data has a spawn cell, use it.
+     * Otherwise, find center-most open tile.
+     */
     function getSpawnPosition() {
-        const cr = Math.floor(mapRows / 2);
-        const cc = Math.floor(mapCols / 2);
+        // Use level JSON spawn if available
+        if (_levelData && _levelData.spawn) {
+            var s = _levelData.spawn;
+            return new THREE.Vector3(
+                s.col * TILE_SIZE + TILE_SIZE / 2,
+                1.6,
+                s.row * TILE_SIZE + TILE_SIZE / 2
+            );
+        }
 
-        for (let r = 0; r < Math.max(mapRows, mapCols); r++) {
+        // Fallback: find center-ish open tile
+        const cr = Math.floor(_mapRows / 2);
+        const cc = Math.floor(_mapCols / 2);
+
+        for (let r = 0; r < Math.max(_mapRows, _mapCols); r++) {
             for (let dr = -r; dr <= r; dr++) {
                 for (let dc = -r; dc <= r; dc++) {
                     const row = cr + dr, col = cc + dc;
-                    if (row >= 0 && row < mapRows && col >= 0 && col < mapCols) {
-                        if (MAP[row][col] === 1) {
+                    if (row >= 0 && row < _mapRows && col >= 0 && col < _mapCols) {
+                        if (_currentMap[row][col] === 1) {
                             return new THREE.Vector3(
                                 col * TILE_SIZE + TILE_SIZE / 2,
                                 1.6,
@@ -359,6 +411,8 @@ const Environment = (() => {
     }
 
     return {
+        setLevelData,
+        getLevelData,
         build,
         getCollisionData,
         getSpawnPosition,

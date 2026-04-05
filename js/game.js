@@ -100,13 +100,27 @@ const Game = (() => {
 
         // --- Initialize lighting engine ---
         LightingEngine.init(scene);
-        LightingEngine.placeLights(
-            envData.map,
-            envData.tileSize,
-            envData.wallHeight,
-            textures.lightPanel,
-            textures.glow
-        );
+
+        // Use level JSON light data if available, otherwise auto-place
+        const levelData = Environment.getLevelData();
+        if (levelData && levelData.lights && levelData.lights.length > 0) {
+            LightingEngine.placeLightsFromData(
+                levelData.lights,
+                envData.tileSize,
+                envData.wallHeight,
+                textures.lightPanel,
+                textures.glow
+            );
+        } else {
+            LightingEngine.placeLights(
+                envData.map,
+                envData.tileSize,
+                envData.wallHeight,
+                textures.lightPanel,
+                textures.glow
+            );
+        }
+
         LightingEngine.addAmbientFog(scene);
         LightingEngine.createShadowPool();
 
@@ -130,9 +144,13 @@ const Game = (() => {
         const spawn = Environment.getSpawnPosition();
         Player.init(camera, spawn, collisionData);
 
-        // --- Place props (chair, etc.) near spawn ---
+        // --- Place props from level data or legacy fallback ---
         Props.init(scene);
-        Props.placeSpawnProps(spawn);
+        if (levelData && levelData.props) {
+            Props.placeFromLevelData(levelData.props, spawn);
+        } else {
+            Props.placeSpawnProps(spawn);
+        }
 
         // --- Initialize physics & interaction engine ---
         Physics.init(scene, camera, collisionData);
