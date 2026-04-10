@@ -25,22 +25,48 @@ const TextureFactory = (() => {
 
     /**
      * Draw a soft irregular blob (used for water stains, mold, etc.)
-     * Uses overlapping semi-transparent circles to create organic shapes.
+     * Uses a warped polygon path with radial gradients for organic shapes.
      */
     function drawBlob(ctx, cx, cy, radius, color, alpha) {
-        const count = 3 + Math.floor(decayRandom() * 5);
-        for (let i = 0; i < count; i++) {
-            const ox = (decayRandom() - 0.5) * radius * 1.2;
-            const oy = (decayRandom() - 0.5) * radius * 1.2;
-            const r  = radius * (0.4 + decayRandom() * 0.6);
+        const layers = 2 + Math.floor(decayRandom() * 4);
+        for (let L = 0; L < layers; L++) {
+            const ox = (decayRandom() - 0.5) * radius * 0.8;
+            const oy = (decayRandom() - 0.5) * radius * 0.8;
+            const r  = radius * (0.5 + decayRandom() * 0.5);
             const a  = alpha * (0.3 + decayRandom() * 0.7);
+
+            // Build an irregular closed path by warping points around a circle
+            const points = 8 + Math.floor(decayRandom() * 6);
+            const pts = [];
+            for (let i = 0; i < points; i++) {
+                const angle = (i / points) * Math.PI * 2;
+                const warp = r * (0.5 + decayRandom() * 0.7);
+                pts.push({
+                    x: cx + ox + Math.cos(angle) * warp,
+                    y: cy + oy + Math.sin(angle) * warp,
+                });
+            }
+
+            // Draw the warped shape with a radial gradient fill
             const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
             grad.addColorStop(0, color.replace('ALPHA', a.toFixed(2)));
-            grad.addColorStop(0.6, color.replace('ALPHA', (a * 0.5).toFixed(2)));
+            grad.addColorStop(0.5, color.replace('ALPHA', (a * 0.4).toFixed(2)));
             grad.addColorStop(1, color.replace('ALPHA', '0'));
             ctx.fillStyle = grad;
+
+            // Smooth the path with quadratic curves between midpoints
             ctx.beginPath();
-            ctx.arc(cx + ox, cy + oy, r, 0, Math.PI * 2);
+            const first = pts[0];
+            const second = pts[1];
+            ctx.moveTo((first.x + second.x) / 2, (first.y + second.y) / 2);
+            for (let i = 1; i < pts.length; i++) {
+                const cur = pts[i];
+                const next = pts[(i + 1) % pts.length];
+                const mx = (cur.x + next.x) / 2;
+                const my = (cur.y + next.y) / 2;
+                ctx.quadraticCurveTo(cur.x, cur.y, mx, my);
+            }
+            ctx.closePath();
             ctx.fill();
         }
     }
