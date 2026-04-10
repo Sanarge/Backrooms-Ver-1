@@ -209,70 +209,15 @@ const TextureFactory = (() => {
     }
 
     /**
-     * Apply carpet decay: stains, dark spots, worn/faded patches, mysterious spills.
+     * No carpet decay — return the original image as-is.
      */
     function applyCarpetDecay(img) {
         const canvas = document.createElement('canvas');
         canvas.width = img.width;
         canvas.height = img.height;
         const ctx = canvas.getContext('2d');
-        const W = canvas.width;
-        const H = canvas.height;
 
         ctx.drawImage(img, 0, 0);
-
-        // --- Dark stains (coffee/liquid spills) ---
-        const spillCount = 3 + Math.floor(decayRandom() * 4);
-        for (let i = 0; i < spillCount; i++) {
-            const cx = decayRandom() * W;
-            const cy = decayRandom() * H;
-            const r  = W * (0.03 + decayRandom() * 0.08);
-            drawBlob(ctx, cx, cy, r, 'rgba(50,35,15,ALPHA)', 0.06 + decayRandom() * 0.1);
-        }
-
-        // --- Faded / worn patches (lighter areas from foot traffic) ---
-        const fadeCount = 2 + Math.floor(decayRandom() * 3);
-        for (let i = 0; i < fadeCount; i++) {
-            const cx = decayRandom() * W;
-            const cy = decayRandom() * H;
-            const r  = W * (0.06 + decayRandom() * 0.12);
-            drawBlob(ctx, cx, cy, r, 'rgba(160,150,110,ALPHA)', 0.04 + decayRandom() * 0.05);
-        }
-
-        // --- Small mystery spots (dark irregular marks) ---
-        const spotCount = 5 + Math.floor(decayRandom() * 8);
-        for (let i = 0; i < spotCount; i++) {
-            const cx = decayRandom() * W;
-            const cy = decayRandom() * H;
-            const r  = W * (0.005 + decayRandom() * 0.015);
-            drawBlob(ctx, cx, cy, r, 'rgba(30,20,10,ALPHA)', 0.1 + decayRandom() * 0.15);
-        }
-
-        // --- Damp / wet-looking patches ---
-        const dampCount = 1 + Math.floor(decayRandom() * 2);
-        for (let i = 0; i < dampCount; i++) {
-            const cx = decayRandom() * W;
-            const cy = decayRandom() * H;
-            const r  = W * (0.04 + decayRandom() * 0.08);
-            drawBlob(ctx, cx, cy, r, 'rgba(60,55,35,ALPHA)', 0.05 + decayRandom() * 0.06);
-        }
-
-        // --- Slight discoloration streaks (like dragged furniture) ---
-        const streakCount = Math.floor(decayRandom() * 3);
-        for (let i = 0; i < streakCount; i++) {
-            ctx.save();
-            ctx.globalAlpha = 0.04 + decayRandom() * 0.06;
-            ctx.strokeStyle = 'rgba(80,65,35,0.5)';
-            ctx.lineWidth = 3 + decayRandom() * 5;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            const sx = decayRandom() * W;
-            const sy = decayRandom() * H;
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(sx + (decayRandom() - 0.5) * W * 0.3, sy + (decayRandom() - 0.5) * H * 0.1);
-            ctx.stroke();
-            ctx.restore();
-        }
 
         return canvas;
     }
