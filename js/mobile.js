@@ -246,7 +246,13 @@ const MobileControls = (() => {
     function show() {
         if (!isActive) return;
         isGameActive = true;
-        if (joystickContainer) joystickContainer.style.display = '';
+        if (joystickContainer) {
+            joystickContainer.style.display = '';
+            // Show joystick in default position (bottom-left) so it's always visible
+            joystickContainer.style.left = '90px';
+            joystickContainer.style.top = (window.innerHeight - 110) + 'px';
+            joystickContainer.classList.add('active');
+        }
     }
 
     function hide() {
