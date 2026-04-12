@@ -78,6 +78,81 @@
         </div>
     </div>
 
+    <!-- Name Entry Screen -->
+    <div id="name-entry" class="screen">
+        <div class="menu-background"></div>
+        <div class="menu-overlay"></div>
+        <div class="menu-content">
+            <h2 class="options-title">Enter Your Name</h2>
+            <div class="name-entry-form">
+                <div class="name-input-row">
+                    <input type="text" id="name-input" class="name-text-input" placeholder="Your name..." maxlength="20" autocomplete="off" spellcheck="false">
+                    <button id="name-arrow" class="name-arrow-btn">&#9654;</button>
+                </div>
+                <div class="server-input-row">
+                    <label class="option-label" for="server-input">Server</label>
+                    <input type="text" id="server-input" class="name-text-input server-addr" placeholder="192.168.1.100:7778" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+            <button class="menu-btn" id="btn-name-back">Back to Menu</button>
+        </div>
+    </div>
+
+    <!-- Lobby Screen -->
+    <div id="lobby-screen" class="screen">
+        <div class="menu-background"></div>
+        <div class="menu-overlay"></div>
+        <div class="lobby-layout">
+            <!-- Left: Players in current lobby -->
+            <div class="lobby-panel lobby-left">
+                <h3 id="lobby-title" class="lobby-panel-title">Lobby</h3>
+                <div id="lobby-player-list" class="lobby-player-list">
+                    <div class="lobby-no-lobby">Not in a lobby</div>
+                </div>
+                <div class="lobby-left-buttons">
+                    <button id="btn-start-game" class="menu-btn lobby-action-btn" style="display:none;">Start Game</button>
+                    <button id="btn-leave-lobby" class="menu-btn lobby-action-btn" style="display:none;">Leave Lobby</button>
+                </div>
+            </div>
+
+            <!-- Center: Lobby browser -->
+            <div class="lobby-panel lobby-center">
+                <h3 class="lobby-panel-title">Browse Lobbies</h3>
+                <div id="lobby-browser-list" class="lobby-browser-list">
+                    <div class="lobby-empty-msg">No lobbies found. Create one!</div>
+                </div>
+                <div class="lobby-center-buttons">
+                    <button id="btn-create-lobby" class="menu-btn">Create Lobby</button>
+                    <button id="btn-lobby-back" class="menu-btn">Back to Menu</button>
+                </div>
+                <div id="connection-status" class="status-disconnected">Connecting...</div>
+            </div>
+
+            <!-- Right: Chat -->
+            <div class="lobby-panel lobby-right">
+                <h3 class="lobby-panel-title">Chat</h3>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div class="chat-input-row">
+                    <input type="text" id="chat-input" class="chat-text-input" placeholder="Type a message..." maxlength="200" autocomplete="off">
+                    <button id="chat-send" class="chat-send-btn">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Lobby Dialog -->
+        <div id="create-lobby-dialog" class="create-dialog">
+            <div class="create-dialog-overlay"></div>
+            <div class="create-dialog-content">
+                <h3 class="options-title" style="font-size:1.6rem;margin-bottom:1.5rem;">Create Lobby</h3>
+                <input type="text" id="create-lobby-name" class="name-text-input" placeholder="Lobby name..." maxlength="30" autocomplete="off">
+                <div class="create-dialog-buttons">
+                    <button id="create-lobby-back" class="menu-btn">Back</button>
+                    <button id="create-lobby-confirm" class="menu-btn">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Level Select Screen -->
     <div id="level-select" class="screen">
         <div class="menu-background"></div>
@@ -120,6 +195,10 @@
     <script src="js/environment.js"></script>
     <script src="js/player.js"></script>
     <script src="js/mobile.js"></script>
+    <script src="js/network.js"></script>
+    <script src="js/playerModel.js"></script>
+    <script src="js/multiplayer.js"></script>
+    <script src="js/lobby.js"></script>
     <script src="js/game.js"></script>
     <script src="js/menu.js"></script>
     <script src="js/main.js"></script>

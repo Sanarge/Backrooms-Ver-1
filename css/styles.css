@@ -585,3 +585,492 @@ body {
         width: 100px;
     }
 }
+
+/* ========================================
+   Name Entry Screen
+   ======================================== */
+
+.name-entry-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.2rem;
+    margin-bottom: 2rem;
+}
+
+.name-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.server-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.name-text-input {
+    background: rgba(232, 217, 160, 0.06);
+    border: 1px solid rgba(232, 217, 160, 0.3);
+    color: #e8d9a0;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    letter-spacing: 0.1rem;
+    padding: 0.7rem 1.2rem;
+    width: 260px;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.name-text-input:focus {
+    border-color: rgba(232, 217, 160, 0.6);
+}
+
+.name-text-input::placeholder {
+    color: rgba(176, 160, 96, 0.5);
+}
+
+.server-addr {
+    width: 220px;
+    font-size: 0.9rem;
+}
+
+.name-arrow-btn {
+    background: rgba(232, 217, 160, 0.1);
+    border: 1px solid rgba(232, 217, 160, 0.3);
+    color: #e8d9a0;
+    font-size: 1.4rem;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.name-arrow-btn:hover {
+    background: rgba(232, 217, 160, 0.2);
+    border-color: rgba(232, 217, 160, 0.5);
+}
+
+/* Shake animation for invalid input */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+
+.shake {
+    animation: shake 0.4s ease;
+}
+
+/* ========================================
+   Lobby Screen
+   ======================================== */
+
+.lobby-layout {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    gap: 1rem;
+    width: 90%;
+    max-width: 1100px;
+    height: 70vh;
+    max-height: 600px;
+    padding: 1rem;
+}
+
+.lobby-panel {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(232, 217, 160, 0.15);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+.lobby-left {
+    flex: 0 0 200px;
+}
+
+.lobby-center {
+    flex: 1;
+}
+
+.lobby-right {
+    flex: 0 0 260px;
+}
+
+.lobby-panel-title {
+    color: #e8d9a0;
+    font-family: 'Courier New', monospace;
+    font-size: 1rem;
+    letter-spacing: 0.15rem;
+    text-transform: uppercase;
+    margin-bottom: 0.8rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(232, 217, 160, 0.1);
+    font-weight: 400;
+}
+
+/* --- Player List (left panel) --- */
+
+.lobby-player-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.lobby-player-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    color: #c8b870;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+}
+
+.host-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #5cb85c;
+    box-shadow: 0 0 4px rgba(92, 184, 92, 0.5);
+    flex-shrink: 0;
+}
+
+.player-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(200, 184, 112, 0.4);
+    flex-shrink: 0;
+}
+
+.lobby-no-lobby {
+    color: rgba(176, 160, 96, 0.5);
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    font-style: italic;
+    text-align: center;
+    padding: 1rem 0;
+}
+
+.lobby-left-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+}
+
+.lobby-action-btn {
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    min-width: auto;
+}
+
+/* --- Lobby Browser (center panel) --- */
+
+.lobby-browser-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.lobby-row {
+    border: 1px solid rgba(232, 217, 160, 0.08);
+    border-radius: 3px;
+    transition: border-color 0.2s ease;
+}
+
+.lobby-row.current {
+    border-color: rgba(92, 184, 92, 0.3);
+    background: rgba(92, 184, 92, 0.05);
+}
+
+.lobby-row-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.6rem;
+}
+
+.lobby-row-name {
+    flex: 1;
+    color: #c8b870;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.host-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #5cb85c;
+    flex-shrink: 0;
+}
+
+.lobby-row-count {
+    color: rgba(176, 160, 96, 0.7);
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.lobby-join-btn {
+    background: rgba(232, 217, 160, 0.08);
+    border: 1px solid rgba(232, 217, 160, 0.2);
+    color: #c8b870;
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    padding: 0.3rem 0.8rem;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08rem;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.lobby-join-btn:hover:not(:disabled) {
+    background: rgba(232, 217, 160, 0.18);
+    border-color: rgba(232, 217, 160, 0.4);
+}
+
+.lobby-join-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.lobby-expand-btn {
+    background: none;
+    border: none;
+    color: rgba(176, 160, 96, 0.5);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    flex-shrink: 0;
+}
+
+.lobby-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0 0.6rem;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.lobby-detail.expanded {
+    max-height: 200px;
+    padding: 0.4rem 0.6rem;
+}
+
+.lobby-detail-player {
+    color: rgba(200, 184, 112, 0.7);
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    padding: 0.15rem 0;
+}
+
+.host-crown {
+    color: #d4a017;
+}
+
+.lobby-empty-msg {
+    color: rgba(176, 160, 96, 0.4);
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    font-style: italic;
+    text-align: center;
+    padding: 2rem 0;
+}
+
+.lobby-center-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+}
+
+.lobby-center-buttons .menu-btn {
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    min-width: auto;
+}
+
+/* --- Connection status --- */
+
+#connection-status {
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    text-align: center;
+    margin-top: 0.5rem;
+    letter-spacing: 0.08rem;
+    text-transform: uppercase;
+}
+
+.status-connected {
+    color: #5cb85c;
+}
+
+.status-disconnected {
+    color: #c05050;
+}
+
+/* --- Chat Panel (right panel) --- */
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding-right: 0.3rem;
+}
+
+.chat-msg {
+    color: rgba(200, 184, 112, 0.8);
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    word-wrap: break-word;
+    line-height: 1.3;
+}
+
+.chat-name {
+    color: #e8d9a0;
+    font-weight: bold;
+}
+
+.chat-system {
+    color: rgba(176, 160, 96, 0.5);
+    font-style: italic;
+}
+
+.chat-input-row {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.chat-text-input {
+    flex: 1;
+    background: rgba(232, 217, 160, 0.04);
+    border: 1px solid rgba(232, 217, 160, 0.15);
+    color: #c8b870;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    outline: none;
+}
+
+.chat-text-input:focus {
+    border-color: rgba(232, 217, 160, 0.4);
+}
+
+.chat-text-input::placeholder {
+    color: rgba(176, 160, 96, 0.3);
+}
+
+.chat-send-btn {
+    background: rgba(232, 217, 160, 0.08);
+    border: 1px solid rgba(232, 217, 160, 0.2);
+    color: #c8b870;
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    padding: 0.4rem 0.8rem;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05rem;
+    transition: all 0.2s ease;
+}
+
+.chat-send-btn:hover {
+    background: rgba(232, 217, 160, 0.18);
+}
+
+/* --- Create Lobby Dialog --- */
+
+.create-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.create-dialog.active {
+    display: flex;
+}
+
+.create-dialog-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.create-dialog-content {
+    position: relative;
+    z-index: 2;
+    background: rgba(30, 28, 20, 0.95);
+    border: 1px solid rgba(232, 217, 160, 0.2);
+    padding: 2rem;
+    text-align: center;
+    min-width: 320px;
+    border-radius: 4px;
+}
+
+.create-dialog-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    justify-content: center;
+}
+
+.create-dialog-buttons .menu-btn {
+    min-width: 120px;
+    font-size: 0.9rem;
+}
+
+/* --- Lobby Mobile Responsive --- */
+
+@media (max-width: 768px) {
+    .lobby-layout {
+        flex-direction: column;
+        height: auto;
+        max-height: 90vh;
+    }
+    .lobby-left {
+        flex: 0 0 auto;
+        max-height: 150px;
+    }
+    .lobby-center {
+        flex: 0 0 auto;
+        max-height: 250px;
+    }
+    .lobby-right {
+        flex: 0 0 auto;
+        max-height: 200px;
+    }
+}

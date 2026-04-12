@@ -312,6 +312,11 @@ const Game = (() => {
         // Physics & interaction (props)
         Physics.update(dt);
 
+        // Multiplayer remote players (if active)
+        if (Multiplayer.getIsActive()) {
+            Multiplayer.update(dt);
+        }
+
         // Render
         renderer.render(scene, camera);
 
@@ -441,6 +446,7 @@ const Game = (() => {
 
     function getIsPaused() { return isPaused; }
     function getIsRunning() { return isRunning; }
+    function getScene() { return scene; }
 
     return {
         _listenersAdded: false,
@@ -452,5 +458,6 @@ const Game = (() => {
         setShowFPS,
         getIsPaused,
         getIsRunning,
+        getScene,
     };
 })();

@@ -1010,6 +1010,18 @@ const Player = (() => {
         Player._listenersAdded = false;
     }
 
+    function _getKeys() {
+        return {
+            forward: keys.forward,
+            backward: keys.backward,
+            left: keys.left,
+            right: keys.right,
+            sprint: keys.sprint,
+            crouch: keys.crouch,
+            jump: keys.jump,
+        };
+    }
+
     return {
         _listenersAdded: false,
         init,
@@ -1022,6 +1034,7 @@ const Player = (() => {
         setSensitivity,
         resetInput,
         setMobileInput,
+        _getKeys,
         dispose,
     };
 })();

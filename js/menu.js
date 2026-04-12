@@ -1,12 +1,14 @@
 /* ========================================
    Menu System
    Screen transitions, settings, audio lifecycle,
-   and level selection.
+   level selection, and multiplayer lobby flow.
    ======================================== */
 
 const Menu = (() => {
     const screens = {
         mainMenu:    document.getElementById('main-menu'),
+        nameEntry:   document.getElementById('name-entry'),
+        lobby:       document.getElementById('lobby-screen'),
         levelSelect: document.getElementById('level-select'),
         options:     document.getElementById('options-menu'),
         game:        document.getElementById('game-screen'),
@@ -19,6 +21,8 @@ const Menu = (() => {
     const btnResume     = document.getElementById('btn-resume');
     const btnQuit       = document.getElementById('btn-quit');
     const btnLevelBack  = document.getElementById('btn-level-back');
+    const btnNameBack   = document.getElementById('btn-name-back');
+    const btnLobbyBack  = document.getElementById('btn-lobby-back');
     const levelBtnsContainer = document.getElementById('level-buttons');
 
     const toggleFPS          = document.getElementById('toggle-fps');
@@ -35,6 +39,7 @@ const Menu = (() => {
 
     let gameInitialized = false;
     let selectedLevel   = 0;
+    let isMultiplayer   = false;
 
     const mobilePauseBtn = document.getElementById('mobile-pause-btn');
 
@@ -50,6 +55,20 @@ const Menu = (() => {
 
         if (btnLevelBack) {
             btnLevelBack.addEventListener('click', () => showScreen('mainMenu'));
+        }
+
+        if (btnNameBack) {
+            btnNameBack.addEventListener('click', () => {
+                Network.disconnect();
+                showScreen('mainMenu');
+            });
+        }
+
+        if (btnLobbyBack) {
+            btnLobbyBack.addEventListener('click', () => {
+                Network.disconnect();
+                showScreen('mainMenu');
+            });
         }
 
         // Mobile pause button
@@ -85,6 +104,9 @@ const Menu = (() => {
                 }
             }
         });
+
+        // Initialize lobby system
+        Lobby.init();
     }
 
     function showScreen(name) {
@@ -100,17 +122,12 @@ const Menu = (() => {
     //  LEVEL SELECTION
     // =========================================
 
-    /**
-     * Check which levels are available (localStorage + static files).
-     * Returns a promise that resolves with an array of { level, name, available }.
-     */
     function _checkAvailableLevels() {
         var results = [];
         var fetches = [];
 
         for (var i = 0; i <= MAX_LEVEL; i++) {
             (function (lvl) {
-                // Check localStorage first
                 var stored = localStorage.getItem('backrooms_level_' + lvl);
                 if (stored) {
                     try {
@@ -120,7 +137,6 @@ const Menu = (() => {
                     } catch (e) { /* fall through */ }
                 }
 
-                // Try static JSON file
                 var p = fetch('assets/levels/level' + lvl + '.json', { method: 'HEAD' })
                     .then(function (res) {
                         if (res.ok) {
@@ -137,7 +153,6 @@ const Menu = (() => {
         }
 
         return Promise.all(fetches).then(function () {
-            // Sort by level number
             results.sort(function (a, b) { return a.level - b.level; });
             return results;
         });
@@ -169,6 +184,7 @@ const Menu = (() => {
         var lvl = parseInt(e.target.getAttribute('data-level'));
         if (isNaN(lvl)) return;
         selectedLevel = lvl;
+        isMultiplayer = false;
         _loadAndStartLevel(lvl);
     }
 
@@ -176,12 +192,7 @@ const Menu = (() => {
     //  LEVEL LOADING
     // =========================================
 
-    /**
-     * Load level data from localStorage or static JSON file.
-     * Returns a promise that resolves with the parsed level data.
-     */
     function _loadLevelData(levelNum) {
-        // Try localStorage first
         var stored = localStorage.getItem('backrooms_level_' + levelNum);
         if (stored) {
             try {
@@ -189,7 +200,6 @@ const Menu = (() => {
             } catch (e) { /* fall through */ }
         }
 
-        // Fetch static JSON
         return fetch('assets/levels/level' + levelNum + '.json')
             .then(function (res) {
                 if (!res.ok) throw new Error('Level file not found');
@@ -202,7 +212,6 @@ const Menu = (() => {
         AudioManager.startAmbientHum();
 
         _loadLevelData(levelNum).then(function (levelData) {
-            // Set the level data on the environment
             Environment.setLevelData(levelData);
 
             if (!gameInitialized) {
@@ -218,7 +227,6 @@ const Menu = (() => {
                     }, 2000);
                 });
             } else {
-                // Re-init game with new level data
                 Game.stop();
                 Game.init(function () {
                     applySettings();
@@ -238,16 +246,64 @@ const Menu = (() => {
         });
     }
 
+    /**
+     * Load and start a multiplayer game session.
+     * Called by Lobby when the server sends game_state.
+     * @param {number} levelNum
+     * @param {object} initialState — first game_state from server
+     */
+    function _loadAndStartMultiplayer(levelNum, initialState) {
+        showScreen('loading');
+        AudioManager.startAmbientHum();
+        isMultiplayer = true;
+
+        _loadLevelData(levelNum).then(function (levelData) {
+            Environment.setLevelData(levelData);
+
+            if (!gameInitialized) {
+                Game.init(function () {
+                    gameInitialized = true;
+                    applySettings();
+
+                    // Initialize multiplayer system
+                    Multiplayer.init(Game.getScene(), Network.getPlayerName());
+
+                    AudioManager.fadeAmbientHumOut(1.0);
+                    setTimeout(function () {
+                        showScreen('game');
+                        showMobilePause();
+                        MobileControls.show();
+                        Game.start(true);
+                    }, 2000);
+                });
+            } else {
+                Game.stop();
+                Game.init(function () {
+                    applySettings();
+                    Multiplayer.init(Game.getScene(), Network.getPlayerName());
+                    AudioManager.fadeAmbientHumOut(1.0);
+                    setTimeout(function () {
+                        showScreen('game');
+                        showMobilePause();
+                        MobileControls.show();
+                        Game.start(true);
+                    }, 2000);
+                });
+            }
+        }).catch(function (err) {
+            console.error('[Menu] Failed to load multiplayer level ' + levelNum, err);
+            alert('Failed to load multiplayer level. Returning to lobby.');
+            showScreen('lobby');
+        });
+    }
+
     // =========================================
     //  START / RESUME / QUIT
     // =========================================
 
     function onStart() {
-        // Show level selection screen
-        _checkAvailableLevels().then(function (levels) {
-            _buildLevelButtons(levels);
-            showScreen('levelSelect');
-        });
+        // Go to name entry screen for multiplayer
+        showScreen('nameEntry');
     }
 
     function showMobilePause() {
@@ -260,7 +316,6 @@ const Menu = (() => {
         if (mobilePauseBtn) mobilePauseBtn.classList.add('hidden');
     }
 
-    /** Apply all current settings to game systems */
     function applySettings() {
         Game.setShowFPS(settings.showFPS);
         Player.setSensitivity(settings.sensitivity);
@@ -277,8 +332,21 @@ const Menu = (() => {
         MobileControls.hide();
         document.getElementById('pause-menu').classList.add('hidden');
         hideMobilePause();
-        showScreen('mainMenu');
+
+        // Shutdown multiplayer if active
+        if (isMultiplayer) {
+            Multiplayer.shutdown();
+            isMultiplayer = false;
+            Network.disconnect();
+            showScreen('mainMenu');
+        } else {
+            showScreen('mainMenu');
+        }
     }
 
-    return { init };
+    return {
+        init,
+        showScreen,
+        _loadAndStartMultiplayer,
+    };
 })();
