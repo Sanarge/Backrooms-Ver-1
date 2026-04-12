@@ -75,14 +75,19 @@ const Multiplayer = (() => {
         const serverPlayers = data.data.players;
         const seenIds = new Set();
 
-        // Debug: log first few game states to verify player data
-        if (_debugLogCount < 5) {
+        // Debug: log first game states to verify player data and positions
+        if (_debugLogCount < 10) {
             _debugLogCount++;
             const pids = Object.keys(serverPlayers);
-            console.log('[Multiplayer] game_state #' + _debugLogCount +
-                ' — players:', pids.length, 'ids:', pids,
-                'localId:', localPlayerId,
-                'remoteCount:', Object.keys(remotePlayers).length);
+            const posInfo = pids.map(pid => {
+                const p = serverPlayers[pid];
+                return pid.slice(-6) + ':(' + p.position.x.toFixed(1) + ',' + p.position.z.toFixed(1) + ')' + p.state;
+            });
+            console.log('[Multiplayer] tick#' + _debugLogCount +
+                ' players:' + pids.length +
+                ' local:' + (localPlayerId ? localPlayerId.slice(-6) : 'null') +
+                ' remotes:' + Object.keys(remotePlayers).length +
+                ' | ' + posInfo.join(' '));
         }
 
         for (const pid in serverPlayers) {

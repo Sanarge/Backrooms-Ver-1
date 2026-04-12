@@ -849,9 +849,13 @@ class BackroomsGameServer:
             except Exception:
                 pass
 
-            # If the game is already in progress, send current game state to the new joiner
+            # If the game is already in progress, add player to game session and send state
             if lobby and lobby.state.value == "playing" and lobby_id in self.active_games:
                 game = self.active_games[lobby_id]
+                # Add to game session so broadcasts include this player
+                player_name = self.client_names.get(client_id, "Player")
+                if client_id not in game.players:
+                    game.add_player(client_id, player_name)
                 try:
                     game_state = game.get_state()
                     await self.clients[client_id].send(json.dumps({

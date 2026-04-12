@@ -272,11 +272,20 @@ const Game = (() => {
         if (!isRunning) return;
         animFrameId = requestAnimationFrame(loop);
 
-        if (isPaused) return;
-
         const rawDt = (now - lastTime) / 1000;
         lastTime = now;
         const dt = Math.min(rawDt, MAX_FRAME_DT);
+
+        // Multiplayer ALWAYS runs (even when paused) so we keep
+        // sending our position and receiving remote player updates
+        if (Multiplayer.getIsActive()) {
+            Multiplayer.update(dt);
+        }
+
+        // Render even when paused so remote players stay visible
+        renderer.render(scene, camera);
+
+        if (isPaused) return;
 
         accumulator += dt;
 
@@ -311,14 +320,6 @@ const Game = (() => {
 
         // Physics & interaction (props)
         Physics.update(dt);
-
-        // Multiplayer remote players (if active)
-        if (Multiplayer.getIsActive()) {
-            Multiplayer.update(dt);
-        }
-
-        // Render
-        renderer.render(scene, camera);
 
         // Stamina UI
         updateStaminaUI(dt);
@@ -425,13 +426,17 @@ const Game = (() => {
         if (MobileControls.getIsMobile()) return;
 
         const canvas = document.getElementById('game-canvas');
+        const wasLocked = isPointerLocked;
         isPointerLocked = document.pointerLockElement === canvas;
 
         if (isPointerLocked) {
             document.addEventListener('mousemove', Player.onMouseMove);
         } else {
             document.removeEventListener('mousemove', Player.onMouseMove);
-            if (isRunning && !isPaused) {
+            // Only pause if we HAD pointer lock and lost it (e.g. user pressed Escape).
+            // Don't pause if pointer lock was never obtained (e.g. game just started
+            // and requestPointerLock failed because there was no user gesture).
+            if (wasLocked && isRunning && !isPaused) {
                 pause();
             }
         }
