@@ -132,14 +132,14 @@ class GameSession:
         self.tick_duration = 1.0 / self.tick_rate
 
         # Initialize player sessions
+        # Default spawn at level center: tile (7,7) * tileSize 4 + offset 2 = (30, 2, 30)
         self.players: Dict[str, PlayerSession] = {}
-        spawn_point = Vector3(x=50.0, y=2.0, z=50.0)
 
         for player_id, player_name in players.items():
             player_session = PlayerSession(
                 player_id=player_id,
                 player_name=player_name,
-                position=Vector3(x=50.0, y=2.0, z=50.0),
+                position=Vector3(x=30.0, y=2.0, z=30.0),
             )
             self.players[player_id] = player_session
 
@@ -156,13 +156,40 @@ class GameSession:
     def set_player_input(self, player_id: str, input_data: dict) -> None:
         """
         Set the input for a player.
+        If the client sends position/state, update the player directly
+        (client-authoritative model — the client has the real physics).
 
         Args:
             player_id: The player ID
-            input_data: Dict with 'keys' and 'mouse' data
+            input_data: Dict with 'keys', 'mouse', and optionally 'position', 'state'
         """
-        if player_id in self.players:
-            self.player_inputs[player_id] = input_data
+        if player_id not in self.players:
+            return
+
+        self.player_inputs[player_id] = input_data
+
+        player = self.players[player_id]
+
+        # Use client-reported position if available (client has real collision/physics)
+        pos = input_data.get("position")
+        if pos:
+            player.position.x = pos.get("x", player.position.x)
+            player.position.y = pos.get("y", player.position.y)
+            player.position.z = pos.get("z", player.position.z)
+
+        # Use client-reported movement state if available
+        state_str = input_data.get("state")
+        if state_str:
+            try:
+                player.state = PlayerState(state_str)
+            except ValueError:
+                pass
+
+        # Always update rotation from mouse
+        mouse = input_data.get("mouse", {})
+        if mouse:
+            player.rotation.yaw = mouse.get("yaw", player.rotation.yaw)
+            player.rotation.pitch = mouse.get("pitch", player.rotation.pitch)
 
     def _calculate_movement_direction(self, keys: dict) -> tuple[float, float]:
         """
@@ -227,111 +254,27 @@ class GameSession:
         """
         Update a single player's state.
 
-        Args:
-            player: The player to update
-            delta_time: Time since last update in seconds
+        The client is authoritative for position and movement state
+        (since it has the real level geometry and physics). The server
+        just relays what clients report. If a client hasn't sent input
+        yet (e.g. still loading), handle spawn state server-side.
         """
-        # Handle spawn animation
-        if player.state == PlayerState.SPAWNING:
-            player.spawn_time += delta_time
-            if player.spawn_time >= self.SPAWN_DURATION:
-                player.state = PlayerState.IDLE
-                player.spawn_time = 0.0
-            return
+        input_data = self.player_inputs.get(player.player_id)
 
-        # Handle trip state
-        if player.state == PlayerState.TRIPPING:
-            player.trip_duration -= delta_time
-            if player.trip_duration <= 0:
-                player.state = PlayerState.IDLE
-            return
-
-        # Get input for this player
-        input_data = self.player_inputs.get(player.player_id, {})
-        keys = input_data.get("keys", {})
-        mouse = input_data.get("mouse", {})
-
-        # Update rotation from mouse input
-        if mouse:
-            player.rotation.yaw = mouse.get("yaw", player.rotation.yaw)
-            player.rotation.pitch = mouse.get("pitch", player.rotation.pitch)
-
-        # Determine player state and calculate movement
-        is_sprinting = keys.get("sprint", False) and player.stamina > self.MIN_STAMINA_TO_SPRINT
-        is_crouching = keys.get("crouch", False)
-
-        # Calculate desired movement direction
-        forward, strafe = self._calculate_movement_direction(keys)
-
-        # Determine speed based on state
-        if is_sprinting:
-            speed = self.SPRINT_SPEED
-            player.state = PlayerState.RUNNING
-            # Drain stamina while sprinting
-            player.stamina = max(0, player.stamina - self.SPRINT_DRAIN_RATE * delta_time)
-        elif is_crouching:
-            speed = self.CROUCH_SPEED
-            player.state = PlayerState.CROUCHING
-            # Regenerate stamina while crouching
-            player.stamina = min(self.max_stamina, player.stamina + self.STAMINA_REGEN_RATE * delta_time)
-        elif forward != 0 or strafe != 0:
-            speed = self.WALK_SPEED
-            player.state = PlayerState.WALKING
-            # Regenerate stamina while walking
-            player.stamina = min(self.max_stamina, player.stamina + self.STAMINA_REGEN_RATE * delta_time)
+        if input_data and input_data.get("position"):
+            # Client is sending real data — trust it (already applied in set_player_input)
+            # Just update stamina based on state
+            if player.state == PlayerState.RUNNING:
+                player.stamina = max(0, player.stamina - self.SPRINT_DRAIN_RATE * delta_time)
+            else:
+                player.stamina = min(self.max_stamina, player.stamina + self.STAMINA_REGEN_RATE * delta_time)
         else:
-            speed = 0
-            player.state = PlayerState.IDLE
-            # Regenerate stamina while idle
-            player.stamina = min(self.max_stamina, player.stamina + self.STAMINA_REGEN_RATE * delta_time)
-
-        # Calculate velocity based on rotation and movement
-        yaw_rad = player.rotation.yaw * pi / 180.0
-
-        # Forward vector (in direction player is facing)
-        forward_vec = Vector3(
-            x=sin(yaw_rad) * forward,
-            y=0,
-            z=cos(yaw_rad) * forward
-        )
-
-        # Right vector (perpendicular to forward)
-        right_vec = Vector3(
-            x=cos(yaw_rad) * strafe,
-            y=0,
-            z=-sin(yaw_rad) * strafe
-        )
-
-        # Combine movement vectors
-        move_direction = forward_vec + right_vec
-        player.velocity = move_direction * speed
-
-        # Apply gravity (simple model)
-        player.velocity.y -= self.GRAVITY * delta_time
-
-        # Update position
-        new_position = player.position + player.velocity * delta_time
-
-        # Check collision
-        if not self._check_collision(new_position):
-            player.position = new_position
-        else:
-            # Simple collision response: stop movement
-            player.velocity = Vector3()
-
-        # Keep player in bounds (clamp to level)
-        player.position.x = max(0, min(self.LEVEL_WIDTH, player.position.x))
-        player.position.z = max(0, min(self.LEVEL_HEIGHT, player.position.z))
-
-        # Keep player above ground
-        if player.position.y < 2.0:
-            player.position.y = 2.0
-            player.velocity.y = 0
-
-        # Trip check - random chance each second
-        if random.random() < self.TRIP_CHANCE_PER_SECOND * delta_time:
-            player.state = PlayerState.TRIPPING
-            player.trip_duration = self.TRIP_DURATION
+            # No client input yet — handle spawn animation server-side
+            if player.state == PlayerState.SPAWNING:
+                player.spawn_time += delta_time
+                if player.spawn_time >= self.SPAWN_DURATION:
+                    player.state = PlayerState.IDLE
+                    player.spawn_time = 0.0
 
     def get_state(self) -> dict:
         """Public accessor for current game state."""
@@ -410,7 +353,7 @@ class GameSession:
             player_session = PlayerSession(
                 player_id=player_id,
                 player_name=player_name,
-                position=Vector3(x=50.0, y=2.0, z=50.0),
+                position=Vector3(x=30.0, y=2.0, z=30.0),
             )
             self.players[player_id] = player_session
 

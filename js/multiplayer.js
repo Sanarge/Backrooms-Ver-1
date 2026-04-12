@@ -41,6 +41,8 @@ const Multiplayer = (() => {
         isActive = true;
         inputSendTimer = 0;
 
+        console.log('[Multiplayer] Init — localPlayerId:', localPlayerId, 'scene:', !!scene);
+
         // Listen for game state updates
         Network.on('game_state', _onGameState);
     }
@@ -65,11 +67,23 @@ const Multiplayer = (() => {
     //  GAME STATE HANDLER
     // =========================================
 
+    let _debugLogCount = 0;
+
     function _onGameState(data) {
         if (!isActive || !data.data || !data.data.players) return;
 
         const serverPlayers = data.data.players;
         const seenIds = new Set();
+
+        // Debug: log first few game states to verify player data
+        if (_debugLogCount < 5) {
+            _debugLogCount++;
+            const pids = Object.keys(serverPlayers);
+            console.log('[Multiplayer] game_state #' + _debugLogCount +
+                ' — players:', pids.length, 'ids:', pids,
+                'localId:', localPlayerId,
+                'remoteCount:', Object.keys(remotePlayers).length);
+        }
 
         for (const pid in serverPlayers) {
             seenIds.add(pid);
@@ -114,6 +128,8 @@ const Multiplayer = (() => {
     // =========================================
 
     function _addRemotePlayer(playerId, serverData) {
+        console.log('[Multiplayer] Adding remote player:', playerId, serverData.player_name,
+            'at', serverData.position.x.toFixed(1), serverData.position.y.toFixed(1), serverData.position.z.toFixed(1));
         const model = PlayerModel.create(serverData.player_name || 'Player');
 
         // Set initial position
@@ -237,26 +253,36 @@ const Multiplayer = (() => {
     }
 
     /**
-     * Send current local player input to the server.
+     * Send current local player state to the server.
+     * Sends actual position + rotation so the server can relay to others.
      */
     function _sendLocalInput() {
         if (!Network.getIsConnected()) return;
 
-        // Get player's current key state and camera rotation
         const pos = Player.getPosition();
         const dirs = Player.getCameraDirections();
         const stamina = Player.getStamina();
 
-        // We need to extract yaw/pitch from the camera
-        // Player stores these internally; we'll approximate from camera direction
+        // Extract yaw/pitch from camera direction
         const fwd = dirs.forward;
         const yaw = Math.atan2(fwd.x, fwd.z) * 180 / Math.PI;
         const pitch = Math.asin(-fwd.y) * 180 / Math.PI;
 
-        Network.sendInput(
-            Player._getKeys ? Player._getKeys() : {},
-            { yaw: yaw, pitch: pitch }
-        );
+        // Determine movement state
+        const keys = Player._getKeys ? Player._getKeys() : {};
+        let state = 'idle';
+        if (keys.crouch) state = 'crouching';
+        else if (keys.sprint && (keys.forward || keys.backward || keys.left || keys.right)) state = 'running';
+        else if (keys.forward || keys.backward || keys.left || keys.right) state = 'walking';
+
+        // Send full player state — server relays position to other clients
+        Network.send({
+            type: 'player_input',
+            keys: keys,
+            mouse: { yaw: yaw, pitch: pitch },
+            position: { x: pos.x, y: pos.y, z: pos.z },
+            state: state,
+        });
     }
 
     // =========================================
