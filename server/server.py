@@ -889,6 +889,7 @@ class BackroomsGameServer:
         lobby = self.lobby_manager.lobbies.get(lobby_id)
 
         if not lobby or lobby.host_player_id != self.client_player_ids.get(client_id):
+            self._log_event(f"Start game rejected: host mismatch or no lobby")
             return
 
         if self.lobby_manager.start_game(lobby_id):
@@ -896,23 +897,30 @@ class BackroomsGameServer:
             game_session = GameSession(lobby_id, players_dict)
             self.active_games[lobby_id] = game_session
 
-            self._log_player_action(client_id, f"Started game in '{lobby.name}'")
+            self._log_player_action(client_id, f"Started game in '{lobby.name}' with {len(players_dict)} players")
 
             game_session.start(
                 lambda state: self._broadcast_game_state(lobby_id, state)
             )
 
-            # Send game_state only to the host so they enter the game
-            # Other players will see the lobby change to "playing" and can click "Join Game"
-            try:
-                game_state = game_session.get_state()
-                await self.clients[client_id].send(json.dumps({
-                    "type": "game_state",
-                    "lobby_id": lobby_id,
-                    "data": game_state
-                }))
-            except Exception:
-                pass
+            # Send initial game_state to ALL lobby members so everyone enters the game
+            game_state = game_session.get_state()
+            message = json.dumps({
+                "type": "game_state",
+                "lobby_id": lobby_id,
+                "data": game_state
+            })
+            for player in lobby.players.values():
+                target_cid = None
+                for cid, pid in self.client_player_ids.items():
+                    if pid == player.id:
+                        target_cid = cid
+                        break
+                if target_cid and target_cid in self.clients:
+                    try:
+                        await self.clients[target_cid].send(message)
+                    except Exception:
+                        pass
 
             # Broadcast updated lobby list so everyone sees the "playing" state
             await self._broadcast_lobby_list()

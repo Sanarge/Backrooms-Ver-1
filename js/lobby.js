@@ -166,6 +166,7 @@ const Lobby = (() => {
         Network.on('game_state', (data) => {
             // Game is starting — transition to game screen (ONLY ONCE)
             if (data && data.data && !inGame) {
+                console.log('[Lobby] First game_state received — entering game');
                 inGame = true;
                 _onGameStart(data);
             }
@@ -467,12 +468,18 @@ const Lobby = (() => {
     // =========================================
 
     function _onStartGame() {
-        if (!currentLobbyId || !isHost) return;
+        console.log('[Lobby] _onStartGame called — lobbyId:', currentLobbyId, 'isHost:', isHost);
+        if (!currentLobbyId || !isHost) {
+            console.warn('[Lobby] Start game blocked — no lobby or not host');
+            return;
+        }
         Network.startGame(currentLobbyId);
         _addSystemMessage('Starting game...');
     }
 
     function _onGameStart(data) {
+        console.log('[Lobby] _onGameStart — entering game, players in state:',
+            data.data ? Object.keys(data.data.players).length : 0);
         // Transition to game — Menu handles screen switching
         Menu.showScreen('loading');
         AudioManager.startAmbientHum();
