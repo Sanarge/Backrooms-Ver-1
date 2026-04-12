@@ -145,6 +145,13 @@ const Lobby = (() => {
             _addSystemMessage('Error: ' + (data.message || 'Unknown error'));
         });
 
+        Network.on('lobby_joined', (data) => {
+            // Server confirmed we joined/created a lobby
+            currentLobbyId = data.lobby_id;
+            console.log('[Lobby] Joined lobby:', data.lobby_name, '(' + data.lobby_id + ')');
+            _addSystemMessage('Joined ' + data.lobby_name);
+        });
+
         Network.on('lobby_list', (data) => {
             lobbies = data.lobbies || [];
             _renderLobbyBrowser();
@@ -222,23 +229,23 @@ const Lobby = (() => {
             countSpan.className = 'lobby-row-count';
             countSpan.textContent = lobby.player_count + '/' + lobby.max_players;
 
-            // Join button
+            // Join button — allow joining even if game is in progress
             const joinBtn = document.createElement('button');
             joinBtn.className = 'lobby-join-btn';
             joinBtn.textContent = 'Join';
-            joinBtn.disabled = lobby.player_count >= lobby.max_players || lobby.state === 'playing' || lobby.id === currentLobbyId;
+            joinBtn.disabled = lobby.player_count >= lobby.max_players || lobby.id === currentLobbyId;
 
             if (lobby.id === currentLobbyId) {
                 joinBtn.textContent = 'Joined';
-            } else if (lobby.state === 'playing') {
-                joinBtn.textContent = 'In Game';
             } else if (lobby.player_count >= lobby.max_players) {
                 joinBtn.textContent = 'Full';
+            } else if (lobby.state === 'playing') {
+                joinBtn.textContent = 'Join Game';
             }
 
             joinBtn.addEventListener('click', () => {
                 Network.joinLobby(lobby.id);
-                currentLobbyId = lobby.id;
+                // currentLobbyId is set when server sends lobby_joined confirmation
             });
 
             // Expandable player list
@@ -371,9 +378,7 @@ const Lobby = (() => {
         const name = createDialogInput ? createDialogInput.value.trim() : '';
         Network.createLobby(name || undefined);
         _hideCreateDialog();
-
-        // We'll set currentLobbyId when lobby_list comes back
-        // For now, assume it works
+        // currentLobbyId is set when server sends lobby_joined confirmation
         _addSystemMessage('Creating lobby...');
     }
 

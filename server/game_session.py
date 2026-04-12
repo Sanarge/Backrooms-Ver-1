@@ -333,6 +333,10 @@ class GameSession:
             player.state = PlayerState.TRIPPING
             player.trip_duration = self.TRIP_DURATION
 
+    def get_state(self) -> dict:
+        """Public accessor for current game state."""
+        return self._get_game_state()
+
     def _get_game_state(self) -> dict:
         """
         Get the current game state.

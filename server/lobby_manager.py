@@ -42,10 +42,9 @@ class Lobby:
     last_activity: datetime = field(default_factory=datetime.now)
 
     def add_player(self, player: Player) -> bool:
-        """Add a player to the lobby. Returns True if successful."""
+        """Add a player to the lobby. Returns True if successful.
+        Players can join even if a game is in progress."""
         if len(self.players) >= self.max_players:
-            return False
-        if self.state != LobbyState.WAITING:
             return False
 
         self.players[player.id] = player

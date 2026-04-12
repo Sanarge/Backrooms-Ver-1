@@ -794,6 +794,15 @@ class BackroomsGameServer:
         if lobby:
             self.client_player_ids[client_id] = player.id
             self._log_player_action(client_id, f"Created lobby '{lobby.name}'")
+            # Tell the creator which lobby they're now in
+            try:
+                await self.clients[client_id].send(json.dumps({
+                    "type": "lobby_joined",
+                    "lobby_id": lobby.id,
+                    "lobby_name": lobby.name
+                }))
+            except Exception:
+                pass
             await self._broadcast_lobby_list()
 
     async def _handle_join_lobby(self, client_id: str, data: dict) -> None:
@@ -809,6 +818,30 @@ class BackroomsGameServer:
             lobby = self.lobby_manager.lobbies.get(lobby_id)
             lobby_name = lobby.name if lobby else lobby_id
             self._log_player_action(client_id, f"Joined lobby '{lobby_name}'")
+            # Tell the joiner which lobby they're now in
+            try:
+                await self.clients[client_id].send(json.dumps({
+                    "type": "lobby_joined",
+                    "lobby_id": lobby_id,
+                    "lobby_name": lobby_name
+                }))
+            except Exception:
+                pass
+
+            # If the game is already in progress, send current game state to the new joiner
+            if lobby and lobby.state.value == "playing" and lobby_id in self.active_games:
+                game = self.active_games[lobby_id]
+                try:
+                    game_state = game.get_state()
+                    await self.clients[client_id].send(json.dumps({
+                        "type": "game_state",
+                        "lobby_id": lobby_id,
+                        "data": game_state
+                    }))
+                    self._log_player_action(client_id, f"Joined in-progress game in '{lobby_name}'")
+                except Exception:
+                    pass
+
             await self._broadcast_lobby_list()
         else:
             await self.clients[client_id].send(json.dumps({
@@ -860,7 +893,41 @@ class BackroomsGameServer:
             return
 
         message = data.get("message", "")[:200]
+        sender_name = self.client_names[client_id]
         self._log_player_action(client_id, f"CHAT: {message}")
+
+        # Broadcast chat to all players in the same lobby
+        if client_id in self.client_player_ids:
+            player_id = self.client_player_ids[client_id]
+            lobby = self.lobby_manager.get_player_lobby(player_id)
+            if lobby:
+                chat_msg = json.dumps({
+                    "type": "chat",
+                    "name": sender_name,
+                    "message": message
+                })
+                for pid, player in lobby.players.items():
+                    # Send to everyone EXCEPT the sender (they already show their own msg)
+                    if pid != client_id:
+                        for cid, cpid in self.client_player_ids.items():
+                            if cpid == pid and cid in self.clients:
+                                try:
+                                    await self.clients[cid].send(chat_msg)
+                                except Exception:
+                                    pass
+        else:
+            # Not in a lobby — broadcast to all connected clients (global chat fallback)
+            chat_msg = json.dumps({
+                "type": "chat",
+                "name": sender_name,
+                "message": message
+            })
+            for cid in self.clients:
+                if cid != client_id:
+                    try:
+                        await self.clients[cid].send(chat_msg)
+                    except Exception:
+                        pass
 
     async def _handle_disconnect(self, client_id: str) -> None:
         if client_id not in self.clients:
