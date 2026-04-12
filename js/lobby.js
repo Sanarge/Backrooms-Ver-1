@@ -13,13 +13,13 @@ const Lobby = (() => {
     let lobbies = [];    // latest lobby list from server
     let chatMessages = []; // { name, message, timestamp }
 
-    // --- Server address (configurable) ---
-    let serverAddress = '';
+    // --- Server address (loaded dynamically from server_config.json) ---
+    let SERVER_ADDRESS = null;
 
     // --- DOM refs (populated on init) ---
     let nameInput = null;
     let nameArrow = null;
-    let serverInput = null;
+    // serverInput removed — address is hardcoded
     let lobbyScreen = null;
     let lobbyPlayerList = null;
     let lobbyBrowser = null;
@@ -41,11 +41,22 @@ const Lobby = (() => {
     //  INIT
     // =========================================
 
-    function init() {
+    async function init() {
+        // Fetch server address from config
+        try {
+            const resp = await fetch('server_config.json?t=' + Date.now());
+            const config = await resp.json();
+            SERVER_ADDRESS = config.address;
+            console.log('Server address loaded:', SERVER_ADDRESS);
+        } catch (e) {
+            console.warn('Could not load server_config.json, using fallback');
+            SERVER_ADDRESS = 'ws://136.36.187.132:7778';
+        }
+
         // Cache DOM elements
         nameInput       = document.getElementById('name-input');
         nameArrow       = document.getElementById('name-arrow');
-        serverInput     = document.getElementById('server-input');
+        // serverInput removed — address is hardcoded
         lobbyScreen     = document.getElementById('lobby-screen');
         lobbyPlayerList = document.getElementById('lobby-player-list');
         lobbyBrowser    = document.getElementById('lobby-browser-list');
@@ -159,20 +170,13 @@ const Lobby = (() => {
 
         playerName = name.substring(0, 20);
 
-        // Get server address
-        const addr = serverInput ? serverInput.value.trim() : '';
-        if (!addr) {
-            if (serverInput) {
-                serverInput.classList.add('shake');
-                setTimeout(() => serverInput.classList.remove('shake'), 400);
-            }
+        if (!SERVER_ADDRESS) {
+            console.error('Server address not loaded yet');
             return;
         }
 
-        serverAddress = addr.startsWith('ws://') || addr.startsWith('wss://') ? addr : 'ws://' + addr;
-
         // Connect to server
-        Network.connect(serverAddress, playerName);
+        Network.connect(SERVER_ADDRESS, playerName);
 
         // Transition to lobby screen
         Menu.showScreen('lobby');

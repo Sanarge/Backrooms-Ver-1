@@ -18,6 +18,7 @@ import os
 import re
 import resource
 import sys
+import urllib.request
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,12 @@ from typing import Dict, List, Optional
 
 import psutil
 import websockets
+
+try:
+    import miniupnpc
+    HAS_UPNP = True
+except ImportError:
+    HAS_UPNP = False
 
 from lobby_manager import LobbyManager, Player
 from game_session import GameSession
@@ -264,7 +271,10 @@ class ServerTUI:
         self._safe_addstr(1, 1, "Status: ", curses.color_pair(self.C_BLUE))
         self._safe_addstr(1, 9, status, status_color | curses.A_BOLD)
 
-        addr = f"ws://0.0.0.0:{server.port}"
+        if server.public_ip:
+            addr = f"ws://{server.public_ip}:{server.port}"
+        else:
+            addr = f"ws://0.0.0.0:{server.port}"
         self._safe_addstr(1, 9 + len(status) + 3, "Address: ", curses.color_pair(self.C_BLUE))
         self._safe_addstr(1, 9 + len(status) + 12, addr, curses.color_pair(self.C_YELLOW))
 
@@ -536,6 +546,8 @@ class BackroomsGameServer:
         # Server state
         self.running = False
         self.start_time: Optional[datetime] = None
+        self.public_ip: Optional[str] = None
+        self.upnp_mapped = False
 
         # TUI reference (set during start)
         self.tui: Optional[ServerTUI] = None
@@ -577,6 +589,94 @@ class BackroomsGameServer:
         except Exception:
             pass
         return "unknown"
+
+    # =========================================
+    #  UPnP & PUBLIC IP
+    # =========================================
+
+    def _fetch_public_ip(self) -> Optional[str]:
+        """Fetch our public IP from an external service."""
+        services = [
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://checkip.amazonaws.com",
+        ]
+        for url in services:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "BackroomsServer/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    ip = resp.read().decode().strip()
+                    if ip and len(ip) < 50:
+                        return ip
+            except Exception:
+                continue
+        return None
+
+    def _setup_upnp(self) -> bool:
+        """Set up UPnP port forwarding for the game server."""
+        if not HAS_UPNP:
+            self._debug("miniupnpc not installed — skipping UPnP")
+            self._log_event("UPnP: miniupnpc not installed (pip install miniupnpc)")
+            return False
+
+        try:
+            u = miniupnpc.UPnP()
+            u.discoverdelay = 200
+            self._debug("UPnP: discovering devices...")
+            self._log_event("UPnP: Discovering router...")
+            ndevices = u.discover()
+            self._debug(f"UPnP: found {ndevices} device(s)")
+
+            u.selectigd()
+            local_ip = u.lanaddr
+            self._debug(f"UPnP: local IP = {local_ip}")
+
+            # Try to add port mapping
+            result = u.addportmapping(
+                self.port, 'TCP', local_ip, self.port,
+                'Backrooms Game Server', ''
+            )
+            if result:
+                self._debug(f"UPnP: mapped port {self.port} -> {local_ip}:{self.port}")
+                self._log_event(f"UPnP: Port {self.port} forwarded OK")
+                self.upnp_mapped = True
+                return True
+            else:
+                self._debug("UPnP: addportmapping returned False")
+                self._log_event("UPnP: Port mapping failed")
+                return False
+
+        except Exception as e:
+            self._debug(f"UPnP error: {e}")
+            self._log_event(f"UPnP: {e}")
+            return False
+
+    def _cleanup_upnp(self):
+        """Remove UPnP port mapping on shutdown."""
+        if not self.upnp_mapped or not HAS_UPNP:
+            return
+        try:
+            u = miniupnpc.UPnP()
+            u.discoverdelay = 200
+            u.discover()
+            u.selectigd()
+            u.deleteportmapping(self.port, 'TCP')
+            self._debug(f"UPnP: removed port mapping for {self.port}")
+        except Exception as e:
+            self._debug(f"UPnP cleanup error: {e}")
+
+    def _write_server_config(self):
+        """Write public IP to a config file for the client to discover."""
+        if not self.public_ip:
+            return
+        config_path = Path.home() / "Desktop" / "BackroomsGame" / "server_config.json"
+        try:
+            config = {"address": f"ws://{self.public_ip}:{self.port}"}
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            self._debug(f"Wrote server_config.json: {config}")
+        except Exception as e:
+            self._debug(f"Failed to write server_config.json: {e}")
 
     # =========================================
     #  BROADCAST
@@ -847,6 +947,20 @@ class BackroomsGameServer:
         self._log_event("Server starting...")
         self._debug(f"About to bind ws://{self.host}:{self.port}")
 
+        # Set up UPnP port forwarding
+        self._setup_upnp()
+
+        # Fetch public IP
+        self._log_event("Fetching public IP...")
+        self.public_ip = self._fetch_public_ip()
+        if self.public_ip:
+            self._log_event(f"Public IP: {self.public_ip}")
+            self._debug(f"Public IP: {self.public_ip}")
+            self._write_server_config()
+        else:
+            self._log_event("Could not determine public IP")
+            self._debug("Public IP fetch failed")
+
         try:
             async with websockets.serve(self.handle_client, self.host, self.port):
                 self._debug("WebSocket server bound OK")
@@ -873,6 +987,7 @@ class BackroomsGameServer:
             for game in self.active_games.values():
                 game.stop()
 
+            self._cleanup_upnp()
             self.player_logger.close_all()
             self._debug("Shutdown complete")
 
