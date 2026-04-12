@@ -105,10 +105,6 @@
                 <div id="lobby-player-list" class="lobby-player-list">
                     <div class="lobby-no-lobby">Not in a lobby</div>
                 </div>
-                <div class="lobby-left-buttons">
-                    <button id="btn-start-game" class="menu-btn lobby-action-btn" style="display:none;">Start Game</button>
-                    <button id="btn-leave-lobby" class="menu-btn lobby-action-btn" style="display:none;">Leave Lobby</button>
-                </div>
             </div>
 
             <!-- Center: Lobby browser -->
@@ -117,9 +113,11 @@
                 <div id="lobby-browser-list" class="lobby-browser-list">
                     <div class="lobby-empty-msg">No lobbies found. Create one!</div>
                 </div>
-                <div class="lobby-center-buttons">
+                <div id="center-buttons" class="lobby-center-buttons">
                     <button id="btn-create-lobby" class="menu-btn">Create Lobby</button>
                     <button id="btn-lobby-back" class="menu-btn">Back to Menu</button>
+                    <button id="btn-start-game" class="menu-btn" style="display:none;">Start Game</button>
+                    <button id="btn-leave-lobby" class="menu-btn" style="display:none;">Leave Lobby</button>
                 </div>
                 <div id="connection-status" class="status-disconnected">Connecting...</div>
             </div>

@@ -753,7 +753,17 @@ body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: rgba(200, 184, 112, 0.4);
+    background: rgba(140, 140, 140, 0.5);
+    flex-shrink: 0;
+}
+
+.self-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #5cb85c;
+    box-shadow: 0 0 6px rgba(92, 184, 92, 0.6), 0 0 12px rgba(92, 184, 92, 0.3);
     flex-shrink: 0;
 }
 

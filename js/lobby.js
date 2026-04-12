@@ -136,6 +136,7 @@ const Lobby = (() => {
         Network.on('connected', () => {
             if (connectionStatus) connectionStatus.textContent = 'Connected';
             if (connectionStatus) connectionStatus.className = 'status-connected';
+            _addSystemMessage('Welcome, ' + playerName + '! Say hello to everyone.');
         });
 
         Network.on('disconnected', () => {
@@ -315,11 +316,6 @@ const Lobby = (() => {
         if (!myLobby || !myLobby.players) {
             // NOT in a lobby — show waiting room
             if (lobbyTitle) lobbyTitle.textContent = 'Waiting for Lobby';
-            if (startGameBtn) startGameBtn.style.display = 'none';
-            if (leaveLobbyBtn) leaveLobbyBtn.style.display = 'none';
-
-            // Show "Join Game" button if we have a currentLobbyId but lobby isn't found
-            // (shouldn't happen, but just in case)
 
             if (waitingPlayers.length === 0) {
                 lobbyPlayerList.innerHTML = '<div class="lobby-no-lobby">No other players online</div>';
@@ -328,11 +324,16 @@ const Lobby = (() => {
                     const el = document.createElement('div');
                     el.className = 'lobby-player-entry';
                     const isSelf = (p.name === playerName);
-                    el.innerHTML = '<span class="player-indicator"></span>' +
+                    // Green glow for yourself, gray for others
+                    const indicator = isSelf ? '<span class="self-indicator"></span>' : '<span class="player-indicator"></span>';
+                    el.innerHTML = indicator +
                         '<span class="player-name-text">' + _escapeHtml(p.name) + (isSelf ? ' (you)' : '') + '</span>';
                     lobbyPlayerList.appendChild(el);
                 }
             }
+
+            // Update center buttons: show Create Lobby / Back to Menu
+            _updateCenterButtons(null);
             return;
         }
 
@@ -342,33 +343,59 @@ const Lobby = (() => {
         // Check if we are host
         isHost = (myLobby.host_name === playerName);
 
-        // Host sees "Start Game" only when lobby is waiting
-        if (startGameBtn) {
-            startGameBtn.style.display = (isHost && myLobby.state === 'waiting') ? '' : 'none';
-        }
-        if (leaveLobbyBtn) leaveLobbyBtn.style.display = '';
-
         for (const p of myLobby.players) {
             const el = document.createElement('div');
             el.className = 'lobby-player-entry';
-            const isLobbyHost = (myLobby.host_name === p.name);
             const isSelf = (p.name === playerName);
-            el.innerHTML = (isLobbyHost ? '<span class="host-indicator"></span>' : '<span class="player-indicator"></span>') +
+            const isLobbyHost = (myLobby.host_name === p.name);
+            // Green glow for yourself, gray for others
+            let indicator;
+            if (isSelf) {
+                indicator = '<span class="self-indicator"></span>';
+            } else if (isLobbyHost) {
+                indicator = '<span class="host-indicator"></span>';
+            } else {
+                indicator = '<span class="player-indicator"></span>';
+            }
+            el.innerHTML = indicator +
                 '<span class="player-name-text">' + _escapeHtml(p.name) + (isSelf ? ' (you)' : '') + '</span>';
             lobbyPlayerList.appendChild(el);
         }
 
-        // If game is in progress and we're not the host, show "Join Game" button
+        // If game is in progress, show "Join Game" button in the left panel
         if (myLobby.state === 'playing') {
             const joinGameBtn = document.createElement('button');
             joinGameBtn.className = 'menu-btn lobby-action-btn';
             joinGameBtn.textContent = 'Join Game';
             joinGameBtn.style.marginTop = '0.5rem';
             joinGameBtn.addEventListener('click', () => {
-                // Request to join the active game
                 Network.send({ type: 'join_game', lobby_id: currentLobbyId });
             });
             lobbyPlayerList.appendChild(joinGameBtn);
+        }
+
+        // Update center buttons: show Start Game / Leave Lobby
+        _updateCenterButtons(myLobby);
+    }
+
+    function _updateCenterButtons(myLobby) {
+        const createBtn_el = document.getElementById('btn-create-lobby');
+        const backBtn_el = document.getElementById('btn-lobby-back');
+
+        if (!myLobby) {
+            // Not in a lobby — show Create Lobby / Back to Menu
+            if (createBtn_el) createBtn_el.style.display = '';
+            if (backBtn_el) backBtn_el.style.display = '';
+            if (startGameBtn) startGameBtn.style.display = 'none';
+            if (leaveLobbyBtn) leaveLobbyBtn.style.display = 'none';
+        } else {
+            // In a lobby — hide Create/Back, show Start Game (host only) / Leave Lobby
+            if (createBtn_el) createBtn_el.style.display = 'none';
+            if (backBtn_el) backBtn_el.style.display = 'none';
+            if (startGameBtn) {
+                startGameBtn.style.display = (isHost && myLobby.state === 'waiting') ? '' : 'none';
+            }
+            if (leaveLobbyBtn) leaveLobbyBtn.style.display = '';
         }
     }
 
@@ -461,7 +488,7 @@ const Lobby = (() => {
         Network.leaveLobby();
         currentLobbyId = null;
         isHost = false;
-        _renderPlayerList();
+        _renderLeftPanel();
         _addSystemMessage('Left lobby');
     }
 
