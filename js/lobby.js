@@ -12,6 +12,8 @@ const Lobby = (() => {
     let playerName = '';
     let lobbies = [];    // latest lobby list from server
     let chatMessages = []; // { name, message, timestamp }
+    let expandedLobbies = new Set(); // track which lobby rows are expanded
+    let waitingPlayers = []; // players not in any lobby
 
     // --- Server address (loaded dynamically from server_config.json) ---
     let SERVER_ADDRESS = null;
@@ -154,8 +156,9 @@ const Lobby = (() => {
 
         Network.on('lobby_list', (data) => {
             lobbies = data.lobbies || [];
+            waitingPlayers = data.waiting_players || [];
             _renderLobbyBrowser();
-            _renderPlayerList();
+            _renderLeftPanel();
         });
 
         Network.on('game_state', (data) => {
@@ -219,10 +222,16 @@ const Lobby = (() => {
             row.className = 'lobby-row';
             if (lobby.id === currentLobbyId) row.classList.add('current');
 
-            // Host indicator (green dot) + lobby name
+            const isExpanded = expandedLobbies.has(lobby.id);
+
+            // Host indicator (green dot) + lobby name + state badge
             const nameSpan = document.createElement('span');
             nameSpan.className = 'lobby-row-name';
-            nameSpan.innerHTML = '<span class="host-dot"></span> ' + _escapeHtml(lobby.name);
+            let stateTag = '';
+            if (lobby.state === 'playing') {
+                stateTag = ' <span class="lobby-state-badge playing">IN GAME</span>';
+            }
+            nameSpan.innerHTML = '<span class="host-dot"></span> ' + _escapeHtml(lobby.name) + stateTag;
 
             // Player count
             const countSpan = document.createElement('span');
@@ -240,24 +249,25 @@ const Lobby = (() => {
             } else if (lobby.player_count >= lobby.max_players) {
                 joinBtn.textContent = 'Full';
             } else if (lobby.state === 'playing') {
-                joinBtn.textContent = 'Join Game';
+                joinBtn.textContent = 'Join';
             }
 
             joinBtn.addEventListener('click', () => {
                 Network.joinLobby(lobby.id);
-                // currentLobbyId is set when server sends lobby_joined confirmation
             });
 
-            // Expandable player list
+            // Expandable player list — preserve expanded state
             const expandBtn = document.createElement('button');
             expandBtn.className = 'lobby-expand-btn';
-            expandBtn.textContent = '\u25BC';
-            expandBtn.addEventListener('click', () => {
-                const detail = row.querySelector('.lobby-detail');
-                if (detail) {
-                    detail.classList.toggle('expanded');
-                    expandBtn.textContent = detail.classList.contains('expanded') ? '\u25B2' : '\u25BC';
+            expandBtn.textContent = isExpanded ? '\u25B2' : '\u25BC';
+            expandBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (expandedLobbies.has(lobby.id)) {
+                    expandedLobbies.delete(lobby.id);
+                } else {
+                    expandedLobbies.add(lobby.id);
                 }
+                _renderLobbyBrowser(); // re-render with new expanded state
             });
 
             const topRow = document.createElement('div');
@@ -267,17 +277,22 @@ const Lobby = (() => {
             topRow.appendChild(joinBtn);
             topRow.appendChild(expandBtn);
 
-            // Detail section (player names)
+            // Detail section (player names) — show if expanded
             const detail = document.createElement('div');
-            detail.className = 'lobby-detail';
-            if (lobby.players) {
+            detail.className = 'lobby-detail' + (isExpanded ? ' expanded' : '');
+            if (lobby.players && lobby.players.length > 0) {
                 for (const p of lobby.players) {
                     const pEl = document.createElement('div');
                     pEl.className = 'lobby-detail-player';
                     const isLobbyHost = (lobby.host_name === p.name);
-                    pEl.innerHTML = (isLobbyHost ? '<span class="host-crown">&#9733;</span> ' : '') + _escapeHtml(p.name);
+                    pEl.innerHTML = (isLobbyHost ? '<span class="host-crown">&#9733;</span> ' : '<span class="player-dot-small"></span> ') + _escapeHtml(p.name);
                     detail.appendChild(pEl);
                 }
+            } else {
+                const emptyEl = document.createElement('div');
+                emptyEl.className = 'lobby-detail-player';
+                emptyEl.textContent = 'No players';
+                detail.appendChild(emptyEl);
             }
 
             row.appendChild(topRow);
@@ -287,37 +302,73 @@ const Lobby = (() => {
     }
 
     // =========================================
-    //  PLAYER LIST (current lobby)
+    //  LEFT PANEL — lobby members or waiting players
     // =========================================
 
-    function _renderPlayerList() {
+    function _renderLeftPanel() {
         if (!lobbyPlayerList) return;
         lobbyPlayerList.innerHTML = '';
 
         // Find the current lobby
         const myLobby = lobbies.find(l => l.id === currentLobbyId);
+
         if (!myLobby || !myLobby.players) {
-            lobbyPlayerList.innerHTML = '<div class="lobby-no-lobby">Not in a lobby</div>';
+            // NOT in a lobby — show waiting room
+            if (lobbyTitle) lobbyTitle.textContent = 'Waiting for Lobby';
             if (startGameBtn) startGameBtn.style.display = 'none';
             if (leaveLobbyBtn) leaveLobbyBtn.style.display = 'none';
-            if (lobbyTitle) lobbyTitle.textContent = 'Lobby';
+
+            // Show "Join Game" button if we have a currentLobbyId but lobby isn't found
+            // (shouldn't happen, but just in case)
+
+            if (waitingPlayers.length === 0) {
+                lobbyPlayerList.innerHTML = '<div class="lobby-no-lobby">No other players online</div>';
+            } else {
+                for (const p of waitingPlayers) {
+                    const el = document.createElement('div');
+                    el.className = 'lobby-player-entry';
+                    const isSelf = (p.name === playerName);
+                    el.innerHTML = '<span class="player-indicator"></span>' +
+                        '<span class="player-name-text">' + _escapeHtml(p.name) + (isSelf ? ' (you)' : '') + '</span>';
+                    lobbyPlayerList.appendChild(el);
+                }
+            }
             return;
         }
 
+        // IN a lobby — show lobby members
         if (lobbyTitle) lobbyTitle.textContent = myLobby.name;
 
         // Check if we are host
         isHost = (myLobby.host_name === playerName);
-        if (startGameBtn) startGameBtn.style.display = isHost ? '' : 'none';
+
+        // Host sees "Start Game" only when lobby is waiting
+        if (startGameBtn) {
+            startGameBtn.style.display = (isHost && myLobby.state === 'waiting') ? '' : 'none';
+        }
         if (leaveLobbyBtn) leaveLobbyBtn.style.display = '';
 
         for (const p of myLobby.players) {
             const el = document.createElement('div');
             el.className = 'lobby-player-entry';
             const isLobbyHost = (myLobby.host_name === p.name);
+            const isSelf = (p.name === playerName);
             el.innerHTML = (isLobbyHost ? '<span class="host-indicator"></span>' : '<span class="player-indicator"></span>') +
-                '<span class="player-name-text">' + _escapeHtml(p.name) + '</span>';
+                '<span class="player-name-text">' + _escapeHtml(p.name) + (isSelf ? ' (you)' : '') + '</span>';
             lobbyPlayerList.appendChild(el);
+        }
+
+        // If game is in progress and we're not the host, show "Join Game" button
+        if (myLobby.state === 'playing') {
+            const joinGameBtn = document.createElement('button');
+            joinGameBtn.className = 'menu-btn lobby-action-btn';
+            joinGameBtn.textContent = 'Join Game';
+            joinGameBtn.style.marginTop = '0.5rem';
+            joinGameBtn.addEventListener('click', () => {
+                // Request to join the active game
+                Network.send({ type: 'join_game', lobby_id: currentLobbyId });
+            });
+            lobbyPlayerList.appendChild(joinGameBtn);
         }
     }
 

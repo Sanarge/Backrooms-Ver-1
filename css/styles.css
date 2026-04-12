@@ -891,6 +891,32 @@ body {
     color: #d4a017;
 }
 
+.player-dot-small {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(176, 160, 96, 0.5);
+    margin-right: 0.3rem;
+    vertical-align: middle;
+}
+
+.lobby-state-badge {
+    font-size: 0.55rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+.lobby-state-badge.playing {
+    background: rgba(80, 180, 80, 0.25);
+    color: #6ddb6d;
+    border: 1px solid rgba(80, 180, 80, 0.3);
+}
+
 .lobby-empty-msg {
     color: rgba(176, 160, 96, 0.4);
     font-family: 'Courier New', monospace;

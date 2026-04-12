@@ -404,6 +404,16 @@ class GameSession:
         if self.run_task:
             self.run_task.cancel()
 
+    def add_player(self, player_id: str, player_name: str) -> None:
+        """Add a new player to an in-progress game (late join)."""
+        if player_id not in self.players:
+            player_session = PlayerSession(
+                player_id=player_id,
+                player_name=player_name,
+                position=Vector3(x=50.0, y=2.0, z=50.0),
+            )
+            self.players[player_id] = player_session
+
     def remove_player(self, player_id: str) -> bool:
         """
         Remove a player from the game.
