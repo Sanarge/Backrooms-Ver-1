@@ -22,6 +22,10 @@ const Multiplayer = (() => {
     let inputSendTimer = 0;
     const INPUT_SEND_INTERVAL = 1 / 20; // 20Hz
 
+    // Remote player footstep timing
+    const FOOTSTEP_WALK_INTERVAL = 0.55;  // seconds between steps when walking
+    const FOOTSTEP_RUN_INTERVAL = 0.32;   // seconds between steps when running
+
     // =========================================
     //  INIT / SHUTDOWN
     // =========================================
@@ -136,6 +140,7 @@ const Multiplayer = (() => {
             prevState: null,
             interpT: 0,
             name: serverData.player_name,
+            footstepTimer: 0, // accumulates dt, triggers spatial footstep
         };
     }
 
@@ -204,6 +209,23 @@ const Multiplayer = (() => {
 
             // Animate the stick figure
             PlayerModel.animate(rp.model, ss.state, dt);
+
+            // Remote player footstep audio
+            const isWalking = (ss.state === 'walking');
+            const isRunning = (ss.state === 'running');
+            if (isWalking || isRunning) {
+                const interval = isRunning ? FOOTSTEP_RUN_INTERVAL : FOOTSTEP_WALK_INTERVAL;
+                rp.footstepTimer += dt;
+                if (rp.footstepTimer >= interval) {
+                    rp.footstepTimer -= interval;
+                    AudioManager.playSpatialFootstep(
+                        { x: rp.model.position.x, y: 0, z: rp.model.position.z },
+                        isRunning
+                    );
+                }
+            } else {
+                rp.footstepTimer = 0;
+            }
         }
 
         // Send local input to server

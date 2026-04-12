@@ -14,6 +14,7 @@ const Lobby = (() => {
     let chatMessages = []; // { name, message, timestamp }
     let expandedLobbies = new Set(); // track which lobby rows are expanded
     let waitingPlayers = []; // players not in any lobby
+    let inGame = false; // true once we've transitioned to the game screen
 
     // --- Server address (loaded dynamically from server_config.json) ---
     let SERVER_ADDRESS = null;
@@ -163,8 +164,9 @@ const Lobby = (() => {
         });
 
         Network.on('game_state', (data) => {
-            // Game is starting — transition to game screen
-            if (data && data.data) {
+            // Game is starting — transition to game screen (ONLY ONCE)
+            if (data && data.data && !inGame) {
+                inGame = true;
                 _onGameStart(data);
             }
         });
@@ -488,6 +490,7 @@ const Lobby = (() => {
         Network.leaveLobby();
         currentLobbyId = null;
         isHost = false;
+        inGame = false;
         _renderLeftPanel();
         _addSystemMessage('Left lobby');
     }

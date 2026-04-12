@@ -795,6 +795,15 @@ class BackroomsGameServer:
 
         self._log_player_action(client_id, "Set name")
 
+        # Tell the client their server-assigned ID so multiplayer works
+        try:
+            await self.clients[client_id].send(json.dumps({
+                "type": "your_id",
+                "client_id": client_id
+            }))
+        except Exception:
+            pass
+
     async def _handle_create_lobby(self, client_id: str, data: dict) -> None:
         if client_id not in self.client_names:
             return

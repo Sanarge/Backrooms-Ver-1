@@ -396,6 +396,78 @@ const AudioManager = (() => {
     }
 
     // =========================================
+    //  SPATIAL FOOTSTEP — for remote players
+    // =========================================
+
+    /**
+     * Play a 3D-positioned footstep at a world position.
+     * @param {object} worldPos — {x, y, z}
+     * @param {boolean} sprinting
+     */
+    function playSpatialFootstep(worldPos, sprinting) {
+        if (!audioCtx) return;
+        resume();
+
+        const now = audioCtx.currentTime;
+        const vol = sprinting ? 0.22 : 0.12;
+        const dur = sprinting ? 0.12 : 0.09;
+
+        // Panner for 3D positioning
+        const panner = audioCtx.createPanner();
+        panner.panningModel = 'HRTF';
+        panner.distanceModel = 'inverse';
+        panner.refDistance = 1.5;
+        panner.maxDistance = 25;
+        panner.rolloffFactor = 2.0;
+        panner.setPosition(worldPos.x, worldPos.y || 0, worldPos.z);
+
+        // Soft thud
+        const thud = audioCtx.createOscillator();
+        thud.type = 'sine';
+        const freq = sprinting ? 55 : 70;
+        thud.frequency.setValueAtTime(freq + Math.random() * 12, now);
+        thud.frequency.exponentialRampToValueAtTime(30, now + dur);
+
+        const thudGain = audioCtx.createGain();
+        thudGain.gain.setValueAtTime(vol, now);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        thud.connect(thudGain);
+        thudGain.connect(panner);
+        panner.connect(masterGain);
+        thud.start(now);
+        thud.stop(now + dur + 0.01);
+
+        // Carpet scuff noise
+        const scuffLen = audioCtx.sampleRate * (sprinting ? 0.08 : 0.05);
+        const noiseBuf = audioCtx.createBuffer(1, scuffLen, audioCtx.sampleRate);
+        const nd = noiseBuf.getChannelData(0);
+        for (let i = 0; i < scuffLen; i++) {
+            nd[i] = (Math.random() * 2 - 1) * 0.3;
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuf;
+
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.setValueAtTime(vol * 0.5, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.9);
+
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 200;
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = sprinting ? 1200 : 900;
+
+        noise.connect(hp);
+        hp.connect(lp);
+        lp.connect(noiseGain);
+        noiseGain.connect(panner);
+        noise.start(now);
+        noise.stop(now + dur + 0.01);
+    }
+
+    // =========================================
     //  SPATIAL SOURCE VOLUME CONTROL
     //  Mute/fade the positional fluorescent hums
     // =========================================
@@ -709,6 +781,7 @@ const AudioManager = (() => {
         rebuildSources,
         playFallSound,
         playFootstep,
+        playSpatialFootstep,
         muteSpatialSources,
         fadeSpatialSourcesIn,
         muteSource,

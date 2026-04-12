@@ -40,6 +40,7 @@ const Menu = (() => {
     let gameInitialized = false;
     let selectedLevel   = 0;
     let isMultiplayer   = false;
+    let isLoadingMultiplayer = false; // guard against double-loading
 
     const mobilePauseBtn = document.getElementById('mobile-pause-btn');
 
@@ -253,6 +254,10 @@ const Menu = (() => {
      * @param {object} initialState — first game_state from server
      */
     function _loadAndStartMultiplayer(levelNum, initialState) {
+        // Prevent double-loading (game_state can arrive multiple times)
+        if (isLoadingMultiplayer) return;
+        isLoadingMultiplayer = true;
+
         showScreen('loading');
         AudioManager.startAmbientHum();
         isMultiplayer = true;
@@ -266,7 +271,7 @@ const Menu = (() => {
                     applySettings();
 
                     // Initialize multiplayer system
-                    Multiplayer.init(Game.getScene(), Network.getPlayerName());
+                    Multiplayer.init(Game.getScene(), Network.getPlayerId());
 
                     AudioManager.fadeAmbientHumOut(1.0);
                     setTimeout(function () {
@@ -280,7 +285,7 @@ const Menu = (() => {
                 Game.stop();
                 Game.init(function () {
                     applySettings();
-                    Multiplayer.init(Game.getScene(), Network.getPlayerName());
+                    Multiplayer.init(Game.getScene(), Network.getPlayerId());
                     AudioManager.fadeAmbientHumOut(1.0);
                     setTimeout(function () {
                         showScreen('game');
@@ -329,6 +334,7 @@ const Menu = (() => {
     function onQuit() {
         Game.stop();
         gameInitialized = false;
+        isLoadingMultiplayer = false;
         MobileControls.hide();
         document.getElementById('pause-menu').classList.add('hidden');
         hideMobilePause();

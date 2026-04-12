@@ -23,6 +23,9 @@ const Network = (() => {
     // Player name (set before connect)
     let playerName = '';
 
+    // Server-assigned player ID (set when server sends 'your_id')
+    let playerId = null;
+
     /**
      * Register a handler for a specific message type.
      * @param {string} type
@@ -101,6 +104,11 @@ const Network = (() => {
                 const data = JSON.parse(event.data);
                 const type = data.type;
                 if (type) {
+                    // Capture our server-assigned ID
+                    if (type === 'your_id' && data.client_id) {
+                        playerId = data.client_id;
+                        console.log('[Network] Server assigned ID:', playerId);
+                    }
                     _emit(type, data);
                 }
             } catch (e) {
@@ -167,6 +175,7 @@ const Network = (() => {
             ws = null;
         }
         isConnected = false;
+        playerId = null;
         sendQueue.length = 0;
     }
 
@@ -232,6 +241,7 @@ const Network = (() => {
 
     function getIsConnected() { return isConnected; }
     function getPlayerName() { return playerName; }
+    function getPlayerId() { return playerId; }
 
     return {
         on,
@@ -248,5 +258,6 @@ const Network = (() => {
         requestLobbies,
         getIsConnected,
         getPlayerName,
+        getPlayerId,
     };
 })();
