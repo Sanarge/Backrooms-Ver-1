@@ -14,13 +14,17 @@ Action format in logs: [HH:MM:SS] [IP] [Name] [Action]
 import asyncio
 import curses
 import json
+import mimetypes
 import os
 import re
 import resource
 import sys
+import threading
 import urllib.request
 from collections import deque
 from datetime import datetime
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -272,11 +276,11 @@ class ServerTUI:
         self._safe_addstr(1, 9, status, status_color | curses.A_BOLD)
 
         if server.public_ip:
-            addr = f"ws://{server.public_ip}:{server.port}"
+            addr = f"http://{server.public_ip}:{server.HTTP_PORT}"
         else:
-            addr = f"ws://0.0.0.0:{server.port}"
-        self._safe_addstr(1, 9 + len(status) + 3, "Address: ", curses.color_pair(self.C_BLUE))
-        self._safe_addstr(1, 9 + len(status) + 12, addr, curses.color_pair(self.C_YELLOW))
+            addr = f"http://0.0.0.0:{server.HTTP_PORT}"
+        self._safe_addstr(1, 9 + len(status) + 3, "Game URL: ", curses.color_pair(self.C_BLUE))
+        self._safe_addstr(1, 9 + len(status) + 13, addr, curses.color_pair(self.C_YELLOW))
 
         uptime = ""
         if server.start_time:
@@ -501,7 +505,9 @@ class BackroomsGameServer:
 
     HOST = "0.0.0.0"
     PORT = 7778
+    HTTP_PORT = 8080
     MAX_MEMORY_MB = 3000
+    WEB_ROOT = Path.home() / "Desktop" / "BackroomsGame"
 
     UI_UPDATE_INTERVAL = 1.0
     LOBBY_BROADCAST_INTERVAL = 1.0
@@ -631,18 +637,28 @@ class BackroomsGameServer:
             local_ip = u.lanaddr
             self._debug(f"UPnP: local IP = {local_ip}")
 
-            # Try to add port mapping
-            result = u.addportmapping(
+            # Forward WebSocket port
+            result_ws = u.addportmapping(
                 self.port, 'TCP', local_ip, self.port,
                 'Backrooms Game Server', ''
             )
-            if result:
-                self._debug(f"UPnP: mapped port {self.port} -> {local_ip}:{self.port}")
-                self._log_event(f"UPnP: Port {self.port} forwarded OK")
+            # Forward HTTP port
+            result_http = u.addportmapping(
+                self.HTTP_PORT, 'TCP', local_ip, self.HTTP_PORT,
+                'Backrooms HTTP Server', ''
+            )
+
+            if result_ws:
+                self._debug(f"UPnP: mapped WS port {self.port} -> {local_ip}:{self.port}")
+                self._log_event(f"UPnP: Port {self.port} (WS) forwarded OK")
                 self.upnp_mapped = True
+            if result_http:
+                self._debug(f"UPnP: mapped HTTP port {self.HTTP_PORT} -> {local_ip}:{self.HTTP_PORT}")
+                self._log_event(f"UPnP: Port {self.HTTP_PORT} (HTTP) forwarded OK")
+
+            if result_ws or result_http:
                 return True
             else:
-                self._debug("UPnP: addportmapping returned False")
                 self._log_event("UPnP: Port mapping failed")
                 return False
 
@@ -652,7 +668,7 @@ class BackroomsGameServer:
             return False
 
     def _cleanup_upnp(self):
-        """Remove UPnP port mapping on shutdown."""
+        """Remove UPnP port mappings on shutdown."""
         if not self.upnp_mapped or not HAS_UPNP:
             return
         try:
@@ -661,7 +677,8 @@ class BackroomsGameServer:
             u.discover()
             u.selectigd()
             u.deleteportmapping(self.port, 'TCP')
-            self._debug(f"UPnP: removed port mapping for {self.port}")
+            u.deleteportmapping(self.HTTP_PORT, 'TCP')
+            self._debug(f"UPnP: removed port mappings for {self.port} and {self.HTTP_PORT}")
         except Exception as e:
             self._debug(f"UPnP cleanup error: {e}")
 
@@ -677,6 +694,34 @@ class BackroomsGameServer:
             self._debug(f"Wrote server_config.json: {config}")
         except Exception as e:
             self._debug(f"Failed to write server_config.json: {e}")
+
+    def _start_http_server(self):
+        """Start a simple HTTP file server in a daemon thread to serve the game client."""
+        web_root = str(self.WEB_ROOT)
+
+        class QuietHandler(SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=web_root, **kwargs)
+
+            def log_message(self, format, *args):
+                pass  # Suppress HTTP logs from cluttering ncurses
+
+            def end_headers(self):
+                # Add CORS headers so WebSocket connections work
+                self.send_header('Access-Control-Allow-Origin', '*')
+                super().end_headers()
+
+        try:
+            httpd = HTTPServer((self.host, self.HTTP_PORT), QuietHandler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            self._debug(f"HTTP server started on port {self.HTTP_PORT}")
+            self._log_event(f"HTTP server on port {self.HTTP_PORT}")
+            return httpd
+        except Exception as e:
+            self._debug(f"HTTP server failed: {e}")
+            self._log_event(f"HTTP server error: {e}")
+            return None
 
     # =========================================
     #  BROADCAST
@@ -946,6 +991,9 @@ class BackroomsGameServer:
 
         self._log_event("Server starting...")
         self._debug(f"About to bind ws://{self.host}:{self.port}")
+
+        # Start HTTP file server for the game client
+        self._start_http_server()
 
         # Set up UPnP port forwarding
         self._setup_upnp()

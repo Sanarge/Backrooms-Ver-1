@@ -42,15 +42,24 @@ const Lobby = (() => {
     // =========================================
 
     async function init() {
-        // Fetch server address from config
-        try {
-            const resp = await fetch('server_config.json?t=' + Date.now());
-            const config = await resp.json();
-            SERVER_ADDRESS = config.address;
-            console.log('Server address loaded:', SERVER_ADDRESS);
-        } catch (e) {
-            console.warn('Could not load server_config.json, using fallback');
-            SERVER_ADDRESS = 'ws://136.36.187.132:7778';
+        // Determine server address:
+        // If served from the Pi (HTTP), connect WebSocket to same host
+        // If served from GitHub Pages (HTTPS), load from server_config.json
+        if (window.location.protocol === 'http:') {
+            // Served from the Pi — WebSocket on same host, port 7778
+            SERVER_ADDRESS = 'ws://' + window.location.hostname + ':7778';
+            console.log('Server address (same host):', SERVER_ADDRESS);
+        } else {
+            // Served from HTTPS (GitHub Pages) — try config file
+            try {
+                const resp = await fetch('server_config.json?t=' + Date.now());
+                const config = await resp.json();
+                SERVER_ADDRESS = config.address;
+                console.log('Server address loaded:', SERVER_ADDRESS);
+            } catch (e) {
+                console.warn('Could not load server_config.json, using fallback');
+                SERVER_ADDRESS = 'ws://136.36.187.132:7778';
+            }
         }
 
         // Cache DOM elements
